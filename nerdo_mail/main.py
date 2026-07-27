@@ -27,6 +27,8 @@ def run_once() -> int:
     own_address = os.getenv("NERDO_SMTP_FROM_EMAIL", "").strip().casefold()
 
     for item in source.pending():
+        if not ledger.claim(item):
+            continue
         try:
             parsed = parse_command(item.message)
             if not parsed.sender:
