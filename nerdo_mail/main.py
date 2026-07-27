@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 import os
 import time
+from dataclasses import replace
 
+from .command_text import normalize_command_text
 from .config import settings
 from .maildir import LocalMaildirSource, MailLedger
 from .processor import DomainCommands, parse_command, send_reply
@@ -31,6 +33,10 @@ def run_once() -> int:
             continue
         try:
             parsed = parse_command(item.message)
+            parsed = replace(
+                parsed,
+                command=normalize_command_text(parsed.command),
+            )
             if not parsed.sender:
                 raise RuntimeError("Message has no usable From address.")
             auto_submitted = str(item.message.get("Auto-Submitted", "no")).casefold()
