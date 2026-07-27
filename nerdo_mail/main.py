@@ -9,6 +9,7 @@ from .command_text import normalize_command_text
 from .config import settings
 from .maildir import LocalMaildirSource, MailLedger
 from .processor import DomainCommands, parse_command, send_reply
+from .review_ready import ReviewReadyNotifier
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,8 +26,14 @@ def run_once() -> int:
         stable_seconds=settings.stable_seconds,
     )
     commands = DomainCommands(settings)
+    notifier = ReviewReadyNotifier(settings)
     processed = 0
     own_address = os.getenv("NERDO_SMTP_FROM_EMAIL", "").strip().casefold()
+
+    try:
+        notifier.notify_pending()
+    except Exception:
+        logger.exception("Review-ready notification scan failed.")
 
     for item in source.pending():
         if not ledger.claim(item):
