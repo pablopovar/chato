@@ -7,6 +7,7 @@ from dataclasses import replace
 
 from .command_text import normalize_command_text
 from .config import settings
+from .email_chat import answer_email_question
 from .maildir import LocalMaildirSource, MailLedger
 from .processor import DomainCommands, parse_command, send_reply
 from .review_ready import ReviewReadyNotifier
@@ -51,7 +52,16 @@ def run_once() -> int:
                 ledger.record(item, "ignored")
                 logger.info("Ignored automated message %s", item.path.name)
                 continue
+
             result = commands.execute(parsed)
+            if result.body.startswith("Unknown command.") and result.domain:
+                result = answer_email_question(
+                    settings,
+                    parsed,
+                    item.message,
+                    result.domain,
+                )
+
             send_reply(settings, item.message, result)
             ledger.record(item, "processed")
             processed += 1
