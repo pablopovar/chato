@@ -1,0 +1,208 @@
+from __future__ import annotations
+
+import logging
+import os
+import sqlite3
+from dataclasses import dataclass
+
+import httpx
+
+from app.services.email_transport import send_email
+
+from .config import MailSettings
+
+LOGGER = logging.getLogger("nerdo-mail.review-ready")
+
+
+@dataclass(frozen=True)
+class ReviewReadyNotification:
+    review_key: str
+    intake_id: str
+    domain: str
+    owner_email: str
+    document_count: int
+    updated_at: str
+
+
+class ReviewReadyNotifier:
+    def __init__(self, settings: MailSettings):
+        self.settings = settings
+        self.dashboard_url = os.getenv(
+            "NERDO_DASHBOARD_URL",
+            "https://chato.povarchik.com/dashboard/",
+        ).strip()
+        self._init_table()
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.settings.state_path, timeout=30)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA busy_timeout = 5000")
+        return connection
+
+    def _init_table(self) -> None:
+        self.settings.state_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS review_ready_notifications (
+                    review_key TEXT NOT NULL,
+                    intake_id TEXT NOT NULL,
+                    recipient TEXT NOT NULL,
+                    domain TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    error TEXT,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (review_key, recipient)
+                )
+                """
+            )
+
+    def _pending_reviews(self) -> tuple[ReviewReadyNotification, ...]:
+        response = httpx.get(
+            self.settings.core_base_url + "/admin/intakes",
+            headers={"X-Admin-Token": self.settings.core_admin_token},
+            timeout=30,
+        )
+        response.raise_for_status()
+
+        reviews: list[ReviewReadyNotification] = []
+        for intake in response.json().get("intakes", []):
+            if intake.get("status") != "awaiting_review":
+                continue
+            intake_id = str(intake.get("id", "")).strip()
+            domain = str(intake.get("domain", "")).strip().casefold()
+            if not intake_id or not domain:
+                continue
+            review_key = str(
+                intake.get("dataset_version_id") or intake_id
+            ).strip()
+            reviews.append(
+                ReviewReadyNotification(
+                    review_key=review_key,
+                    intake_id=intake_id,
+                    domain=domain,
+                    owner_email=str(intake.get("email", "")).strip(),
+                    document_count=int(intake.get("document_count") or 0),
+                    updated_at=str(intake.get("updated_at", "")).strip(),
+                )
+            )
+        return tuple(reviews)
+
+    def _claim(self, review: ReviewReadyNotification, recipient: str) -> bool:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT status, attempts, updated_at
+                FROM review_ready_notifications
+                WHERE review_key = ? AND recipient = ?
+                """,
+                (review.review_key, recipient),
+            ).fetchone()
+
+            if row is None:
+                connection.execute(
+                    """
+                    INSERT INTO review_ready_notifications (
+                        review_key, intake_id, recipient, domain,
+                        status, attempts, error
+                    )
+                    VALUES (?, ?, ?, ?, 'sending', 1, NULL)
+                    """,
+                    (
+                        review.review_key,
+                        review.intake_id,
+                        recipient,
+                        review.domain,
+                    ),
+                )
+                return True
+
+            if row["status"] != "failed" or int(row["attempts"]) >= 3:
+                return False
+
+            eligible = connection.execute(
+                """
+                SELECT 1
+                WHERE ? <= datetime('now', '-5 minutes')
+                """,
+                (row["updated_at"],),
+            ).fetchone()
+            if not eligible:
+                return False
+
+            connection.execute(
+                """
+                UPDATE review_ready_notifications
+                SET status = 'sending', attempts = attempts + 1,
+                    error = NULL, updated_at = CURRENT_TIMESTAMP
+                WHERE review_key = ? AND recipient = ?
+                """,
+                (review.review_key, recipient),
+            )
+            return True
+
+    def _record(self, review_key: str, recipient: str, status: str, error: str | None = None) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE review_ready_notifications
+                SET status = ?, error = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE review_key = ? AND recipient = ?
+                """,
+                (status, error, review_key, recipient),
+            )
+
+    def _body(self, review: ReviewReadyNotification) -> str:
+        return (
+            "Nerdo finished preparing a domain and it is ready for review.\n\n"
+            f"Domain: {review.domain}\n"
+            f"Owner: {review.owner_email}\n"
+            f"Documents: {review.document_count}\n"
+            "Status: awaiting_review\n"
+            f"Intake: {review.intake_id}\n"
+            f"Updated: {review.updated_at}\n\n"
+            "Activate it by replying to Nerdo with:\n"
+            f"activate {review.domain}\n\n"
+            f"Dashboard:\n{self.dashboard_url}\n"
+        )
+
+    def notify_pending(self) -> int:
+        recipients = sorted(self.settings.admin_emails)
+        if not recipients:
+            LOGGER.warning("NERDO_ADMIN_EMAILS is empty; review-ready notification skipped.")
+            return 0
+
+        sent = 0
+        for review in self._pending_reviews():
+            for recipient in recipients:
+                if not self._claim(review, recipient):
+                    continue
+                try:
+                    send_email(
+                        to_email=recipient,
+                        subject=f"Nerdo review ready: {review.domain}",
+                        body=self._body(review),
+                    )
+                    self._record(review.review_key, recipient, "sent")
+                    sent += 1
+                    LOGGER.info(
+                        "Sent review-ready notification for %s to %s",
+                        review.domain,
+                        recipient,
+                    )
+                except Exception as exc:
+                    self._record(
+                        review.review_key,
+                        recipient,
+                        "failed",
+                        str(exc)[:4000],
+                    )
+                    LOGGER.exception(
+                        "Review-ready notification failed for %s to %s",
+                        review.domain,
+                        recipient,
+                    )
+        return sent
