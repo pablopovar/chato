@@ -19,7 +19,8 @@ from .share_sessions import (
 
 
 PUBLIC_APP_PREFIX = "/nerdo"
-SHARE_ROUTE_PREFIX = f"{PUBLIC_APP_PREFIX}/share"
+PUBLIC_SHARE_ROUTE_PREFIX = f"{PUBLIC_APP_PREFIX}/share"
+INTERNAL_SHARE_ROUTE_PREFIX = "/share"
 
 
 def public_app_base_url(settings: Settings) -> str:
@@ -47,20 +48,20 @@ def install_share_namespace(app: FastAPI, settings: Settings) -> None:
         if state == "used" or access_token is None:
             raise HTTPException(410, "This share link has already been used.")
 
-        path = f"{SHARE_ROUTE_PREFIX}/session/{record['id']}"
+        public_path = f"{PUBLIC_SHARE_ROUTE_PREFIX}/session/{record['id']}"
         expires_at = _parse(record["expires_at"])
         response.set_cookie(
             key=COOKIE_NAME,
             value=access_token,
             max_age=int(record["duration_hours"]) * 3600,
             expires=expires_at,
-            path=path,
+            path=public_path,
             secure=settings.public_base_url.startswith("https://"),
             httponly=True,
             samesite="lax",
         )
         return {
-            "session_url": path,
+            "session_url": public_path,
             "domain": record["domain"],
             "expires_at": record["expires_at"],
         }
@@ -144,33 +145,33 @@ def install_share_namespace(app: FastAPI, settings: Settings) -> None:
         }
 
     app.add_api_route(
-        f"{SHARE_ROUTE_PREFIX}/{{claim_token}}",
+        f"{INTERNAL_SHARE_ROUTE_PREFIX}/{{claim_token}}",
         claim_page,
         methods=["GET"],
         response_class=HTMLResponse,
         include_in_schema=False,
     )
     app.add_api_route(
-        f"{SHARE_ROUTE_PREFIX}/{{claim_token}}/claim",
+        f"{INTERNAL_SHARE_ROUTE_PREFIX}/{{claim_token}}/claim",
         claim,
         methods=["POST"],
         include_in_schema=False,
     )
     app.add_api_route(
-        f"{SHARE_ROUTE_PREFIX}/session/{{session_id}}",
+        f"{INTERNAL_SHARE_ROUTE_PREFIX}/session/{{session_id}}",
         session_page,
         methods=["GET"],
         response_class=HTMLResponse,
         include_in_schema=False,
     )
     app.add_api_route(
-        f"{SHARE_ROUTE_PREFIX}/session/{{session_id}}/state",
+        f"{INTERNAL_SHARE_ROUTE_PREFIX}/session/{{session_id}}/state",
         state,
         methods=["GET"],
         include_in_schema=False,
     )
     app.add_api_route(
-        f"{SHARE_ROUTE_PREFIX}/session/{{session_id}}/messages",
+        f"{INTERNAL_SHARE_ROUTE_PREFIX}/session/{{session_id}}/messages",
         message,
         methods=["POST"],
         include_in_schema=False,
