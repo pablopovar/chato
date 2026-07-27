@@ -1,0 +1,18 @@
+[project]
+name = "nerdo-api"
+version = "1.0.0"
+description = "Public Relations and Nerding Operations API gateway for Chato & Nerdo"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.128,<1",
+  "uvicorn[standard]>=0.30,<1",
+  "pydantic[email]>=2.8,<3",
+  "httpx>=0.27,<1"
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["nerdo_api*"]

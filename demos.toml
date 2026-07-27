@@ -1,0 +1,13 @@
+# Public demo catalog.
+# Existing installations may keep their current demos.toml unchanged.
+
+# [[demos]]
+# id = "example"
+# title = "Example"
+# description = "Example public demo."
+# user = "example"
+# domain = "example.com"
+# public_url = "https://example.com/"
+# enabled = false
+# welcome_message = "Ask a question about this website."
+# suggested_questions = ["What does this company do?"]

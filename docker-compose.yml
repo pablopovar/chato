@@ -1,0 +1,68 @@
+x-nerdo-runtime: &nerdo-runtime
+  build:
+    context: .
+  image: chato-nerdo:local
+  restart: unless-stopped
+  env_file:
+    - .env
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  group_add:
+    - "${NERDO_HOST_GID:-1000}"
+
+services:
+  nerdo:
+    <<: *nerdo-runtime
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "3401"
+    expose:
+      - "3401"
+    environment:
+      NERDO_DATA_DIR: /app/data
+      NERDO_USERS_DIR: /app/users
+      NERDO_DEMOS_PATH: /app/demos.toml
+    volumes:
+      - ./data:/app/data
+      - ./users:/app/users
+      - ./demos.toml:/app/demos.toml:ro
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen("http://127.0.0.1:3401/health", timeout=3).read()
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+
+  nerdo-api:
+    <<: *nerdo-runtime
+    command:
+      - uvicorn
+      - nerdo_api.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "3400"
+    depends_on:
+      nerdo:
+        condition: service_healthy
+    environment:
+      NERDO_BASE_URL: http://nerdo:3401
+      NERDO_ADMIN_TOKEN: "${NERDO_ADMIN_TOKEN:?NERDO_ADMIN_TOKEN is required}"
+      NERDO_OPERATOR_TOKEN: "${NERDO_OPERATOR_TOKEN:?NERDO_OPERATOR_TOKEN is required}"
+      NERDO_DATABASE_PATH: /app/data/nerdo-api.sqlite3
+      NERDO_PUBLIC_BASE_URL: "${NERDO_PUBLIC_BASE_URL:-https://nerdo.povarchik.com}"
+    ports:
+      - "127.0.0.1:3400:3400"
+      - "192.168.1.65:3400:3400"
+    volumes:
+      - ./data:/app/data

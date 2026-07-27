@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+.env.*
+data
+users
+.init-backups
+.rebrand-backups
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+*.zip
+*.patch
+*.log

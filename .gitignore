@@ -1,0 +1,44 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+.htpasswd
+
+# Runtime and customer data
+data/
+users/
+
+# Local backups
+.init-backups/
+.rebrand-backups/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Generated and temporary files
+*.zip
+*.tar
+*.tar.gz
+*.patch
+*.log
+tmp.sh
+dist/
+build/
+*.egg-info/
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+*~
