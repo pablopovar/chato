@@ -73,6 +73,7 @@ services:
 
   nerdo-mail:
     <<: *nerdo-runtime
+    user: "${NERDO_HOST_UID:-1000}:${NERDO_HOST_GID:-1000}"
     command:
       - python
       - -m
