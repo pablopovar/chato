@@ -40,15 +40,36 @@ class MailLedger:
                 "SELECT 1 FROM processed_mail WHERE digest = ?", (digest,)
             ).fetchone() is not None
 
+    def claim(self, item: MailItem) -> bool:
+        """Reserve a message before any command or outbound reply is executed."""
+        with sqlite3.connect(self.path) as conn:
+            cursor = conn.execute(
+                """
+                INSERT OR IGNORE INTO processed_mail (digest, path, status, error)
+                VALUES (?, ?, 'processing', NULL)
+                """,
+                (item.digest, str(item.path)),
+            )
+            return cursor.rowcount == 1
+
     def record(self, item: MailItem, status: str, error: str | None = None) -> None:
         with sqlite3.connect(self.path) as conn:
-            conn.execute(
+            cursor = conn.execute(
                 """
-                INSERT OR REPLACE INTO processed_mail (digest, path, status, error)
-                VALUES (?, ?, ?, ?)
+                UPDATE processed_mail
+                SET path = ?, status = ?, error = ?, processed_at = CURRENT_TIMESTAMP
+                WHERE digest = ?
                 """,
-                (item.digest, str(item.path), status, error),
+                (str(item.path), status, error, item.digest),
             )
+            if cursor.rowcount == 0:
+                conn.execute(
+                    """
+                    INSERT INTO processed_mail (digest, path, status, error)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (item.digest, str(item.path), status, error),
+                )
 
 
 class LocalMaildirSource:
