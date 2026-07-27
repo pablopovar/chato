@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+email="${1:-}"
+if [[ -z "$email" ]]; then
+  printf 'Usage: %s CLIENT_EMAIL\n' "$0" >&2
+  exit 64
+fi
+
+read_env_value() {
+  local key="$1"
+  [[ -f .env ]] || return 0
+  sed -n "s/^${key}=//p" .env | tail -n 1
+}
+
+NERDO_OAUTH_CLIENT_ID="${NERDO_OAUTH_CLIENT_ID:-$(read_env_value NERDO_OAUTH_CLIENT_ID)}"
+NERDO_OAUTH_CLIENT_SECRET="${NERDO_OAUTH_CLIENT_SECRET:-$(read_env_value NERDO_OAUTH_CLIENT_SECRET)}"
+NERDO_OAUTH_SCOPE="${NERDO_OAUTH_SCOPE:-$(read_env_value NERDO_OAUTH_SCOPE)}"
+NERDO_API_BASE_URL="${NERDO_API_BASE_URL:-$(read_env_value NERDO_API_BASE_URL)}"
+
+: "${NERDO_OAUTH_CLIENT_ID:?Set NERDO_OAUTH_CLIENT_ID in the environment or .env}"
+: "${NERDO_OAUTH_CLIENT_SECRET:?Set NERDO_OAUTH_CLIENT_SECRET in the environment or .env}"
+
+base_url="${NERDO_API_BASE_URL:-http://127.0.0.1:3400}"
+scope="${NERDO_OAUTH_SCOPE:-sites:start}"
+
+command -v curl >/dev/null || { echo "curl is required" >&2; exit 69; }
+command -v jq >/dev/null || { echo "jq is required" >&2; exit 69; }
+
+token_json="$(curl --fail-with-body --silent --show-error \
+  --user "${NERDO_OAUTH_CLIENT_ID}:${NERDO_OAUTH_CLIENT_SECRET}" \
+  --header 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode 'grant_type=client_credentials' \
+  --data-urlencode "scope=${scope}" \
+  "${base_url%/}/oauth/token")"
+
+token="$(jq -er '.access_token' <<<"$token_json")"
+payload="$(jq -cn --arg email "$email" '{email: $email}')"
+
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --header "Authorization: Bearer ${token}" \
+  --header 'Content-Type: application/json' \
+  --data "$payload" \
+  "${base_url%/}/v1/operator/sites/start" \
+  | jq

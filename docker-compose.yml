@@ -47,7 +47,7 @@ services:
     <<: *nerdo-runtime
     command:
       - uvicorn
-      - nerdo_api.main:app
+      - nerdo_api.dashboard_app:app
       - --host
       - 0.0.0.0
       - --port
@@ -56,13 +56,17 @@ services:
       nerdo:
         condition: service_healthy
     environment:
+      NERDO_CORE_BASE_URL: "http://nerdo:3401"
+      NERDO_CORE_ADMIN_TOKEN: "${NERDO_ADMIN_TOKEN:?NERDO_ADMIN_TOKEN is required}"
       NERDO_BASE_URL: http://nerdo:3401
       NERDO_ADMIN_TOKEN: "${NERDO_ADMIN_TOKEN:?NERDO_ADMIN_TOKEN is required}"
       NERDO_OPERATOR_TOKEN: "${NERDO_OPERATOR_TOKEN:?NERDO_OPERATOR_TOKEN is required}"
       NERDO_DATABASE_PATH: /app/data/nerdo-api.sqlite3
+      NERDO_USERS_DIR: /app/users
       NERDO_PUBLIC_BASE_URL: "${NERDO_PUBLIC_BASE_URL:-https://nerdo.povarchik.com}"
     ports:
       - "127.0.0.1:3400:3400"
       - "192.168.1.65:3400:3400"
     volumes:
       - ./data:/app/data
+      - ./users:/app/users

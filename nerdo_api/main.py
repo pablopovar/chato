@@ -27,6 +27,7 @@ from .models import (
     SiteCreated,
     SiteStatus,
 )
+from .manual_start import install_manual_start
 from .service import GatewayService
 from .storage import Storage
 
@@ -286,6 +287,8 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
         if current is None:
             raise HTTPException(status_code=404, detail="Operation not found.")
         return service.poll_operation(current)
+
+    install_manual_start(app, service, db)
 
     return app
 
