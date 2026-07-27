@@ -1,0 +1,1 @@
+"""Nerdo inbound-mail adapter."""

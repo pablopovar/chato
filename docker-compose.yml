@@ -70,3 +70,30 @@ services:
     volumes:
       - ./data:/app/data
       - ./users:/app/users
+
+  nerdo-mail:
+    <<: *nerdo-runtime
+    command:
+      - python
+      - -m
+      - nerdo_mail.main
+    depends_on:
+      nerdo:
+        condition: service_healthy
+      nerdo-api:
+        condition: service_started
+    environment:
+      NERDO_CORE_BASE_URL: http://nerdo:3401
+      NERDO_CORE_ADMIN_TOKEN: "${NERDO_ADMIN_TOKEN:?NERDO_ADMIN_TOKEN is required}"
+      NERDO_DATABASE_PATH: /app/data/nerdo-api.sqlite3
+      NERDO_MAIL_STATE_PATH: /app/data/nerdo-mail.sqlite3
+      NERDO_USERS_DIR: /app/users
+      NERDO_MAILDIR_ROOT: /mailbox
+      NERDO_MAILDIR_INBOX: INBOX/cur
+      NERDO_MAIL_POLL_SECONDS: "${NERDO_MAIL_POLL_SECONDS:-10}"
+      NERDO_MAIL_STABLE_SECONDS: "${NERDO_MAIL_STABLE_SECONDS:-2}"
+      NERDO_ADMIN_EMAILS: "${NERDO_ADMIN_EMAILS:-pablo@povarchik.com}"
+    volumes:
+      - ./data:/app/data
+      - ./users:/app/users
+      - /home/pablo/.thunderbird/f0pc3s1x.default/ImapMail/hq3-mx-10.povarchik-2.com:/mailbox:ro

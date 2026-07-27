@@ -10,8 +10,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY nerdo_api ./nerdo_api
+COPY nerdo_mail ./nerdo_mail
 
-RUN python -m compileall -q app nerdo_api \
+RUN python -m compileall -q app nerdo_api nerdo_mail \
     && useradd --create-home --uid 10001 appuser \
     && mkdir -p /app/data /app/users \
     && chown -R appuser:appuser /app
