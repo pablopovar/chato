@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 
 from .config import settings
@@ -23,12 +24,18 @@ def run_once() -> int:
     )
     commands = DomainCommands(settings)
     processed = 0
+    own_address = os.getenv("NERDO_SMTP_FROM_EMAIL", "").strip().casefold()
 
     for item in source.pending():
         try:
             parsed = parse_command(item.message)
             if not parsed.sender:
                 raise RuntimeError("Message has no usable From address.")
+            auto_submitted = str(item.message.get("Auto-Submitted", "no")).casefold()
+            if parsed.sender == own_address or auto_submitted not in {"", "no"}:
+                ledger.record(item, "ignored")
+                logger.info("Ignored automated message %s", item.path.name)
+                continue
             result, domain = commands.execute(parsed)
             send_reply(settings, item.message, result, domain)
             ledger.record(item, "processed")
