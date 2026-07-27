@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
+from app.admin_history import router as admin_history_router
 from app.api import router
 from app.config import settings
 from app.db import init_db
@@ -67,3 +68,4 @@ async def cors(
 
 
 app.include_router(router)
+app.include_router(admin_history_router)
