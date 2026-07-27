@@ -38,8 +38,8 @@ def run_once() -> int:
                 ledger.record(item, "ignored")
                 logger.info("Ignored automated message %s", item.path.name)
                 continue
-            result, domain = commands.execute(parsed)
-            send_reply(settings, item.message, result, domain)
+            result = commands.execute(parsed)
+            send_reply(settings, item.message, result)
             ledger.record(item, "processed")
             processed += 1
             logger.info("Processed %s from %s", item.path.name, parsed.sender)
