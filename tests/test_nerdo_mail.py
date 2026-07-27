@@ -1,6 +1,6 @@
 from email.message import EmailMessage
 
-from nerdo_mail.processor import parse_command
+from nerdo_mail.processor import ADD_DOMAIN_RE, DomainCommands, parse_command
 
 
 def test_parses_explicit_domain_and_command() -> None:
@@ -36,9 +36,40 @@ def test_collects_only_markdown_attachments() -> None:
     message["To"] = "nerdo@nerdo.povarchik.com"
     message["Subject"] = "Nerdo: add documents example.com"
     message.set_content("Domain: example.com\nCommand: add documents\n")
-    message.add_attachment(b"# Source\n", maintype="text", subtype="markdown", filename="source.md")
-    message.add_attachment(b"ignored", maintype="application", subtype="octet-stream", filename="file.bin")
+    message.add_attachment(
+        b"# Source\n",
+        maintype="text",
+        subtype="markdown",
+        filename="source.md",
+    )
+    message.add_attachment(
+        b"ignored",
+        maintype="application",
+        subtype="octet-stream",
+        filename="file.bin",
+    )
 
     parsed = parse_command(message)
 
     assert [name for name, _raw in parsed.attachments] == ["source.md"]
+
+
+def test_add_domain_command_format() -> None:
+    match = ADD_DOMAIN_RE.fullmatch(
+        "add domain example.com|owner@example.net"
+    )
+
+    assert match is not None
+    assert match.group(1) == "example.com"
+    assert match.group(2) == "owner@example.net"
+
+
+def test_command_domain_is_read_from_document_commands() -> None:
+    assert (
+        DomainCommands._command_domain("list documents example.com")
+        == "example.com"
+    )
+    assert (
+        DomainCommands._command_domain("attach documents example.com")
+        == "example.com"
+    )
