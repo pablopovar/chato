@@ -19,6 +19,11 @@ ADD_DOMAIN_USAGE = "Usage: add domain example.com owner@example.com"
 class MailboxDomainCommands(DomainCommands):
     """Mailbox syntax adapter over the channel-agnostic domain operations API."""
 
+    def __init__(self, settings: Any) -> None:
+        # Deliberately do not initialize DomainCommands.storage. The mailbox
+        # parses and authorizes commands, then calls the domain operations API.
+        self.settings = settings
+
     @property
     def _gateway_headers(self) -> dict[str, str]:
         return {"X-Nerdo-Key": self.settings.operator_token}
@@ -104,7 +109,7 @@ class MailboxDomainCommands(DomainCommands):
     def start(self, domain: str) -> str:
         created = self._gateway_request(
             "POST",
-            f"/v1/admin/domains/{domain}/approve",
+            f"/v1/admin/domains/{domain}/start",
         )
         return f"Approved and started {domain}. Intake: {created['intake_id']}."
 
