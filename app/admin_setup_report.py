@@ -7,37 +7,25 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 
 from app.api import require_admin
-from app.db import execute, fetch_one, utc_now
+from app.db import execute, utc_now
 from app.schemas import DraftUpdate
+from app.services.review_workspace import (
+    ensure_review_workspace,
+    sync_review_summary,
+)
 from app.services.setup_report import update_setup_report_summary
 
 
 router = APIRouter()
 
 
-def _review_record(intake_id: str) -> tuple[dict[str, Any], Path, Path]:
-    intake = fetch_one(
-        "SELECT * FROM intakes WHERE id = ?",
-        (intake_id,),
-    )
-    if not intake:
-        raise HTTPException(404, "Intake not found.")
-    intake.pop("status_token_hash", None)
-
-    summary_value = str(intake.get("draft_path") or "").strip()
-    report_value = str(intake.get("report_path") or "").strip()
-    if not summary_value:
-        raise HTTPException(404, "The intake has no Chato corpus summary.")
-    if not report_value:
-        raise HTTPException(404, "The intake has no completed setup report.")
-
-    summary_path = Path(summary_value)
-    report_path = Path(report_value)
-    if not summary_path.is_file():
-        raise HTTPException(404, "The Chato corpus summary file is missing.")
-    if not report_path.is_file():
-        raise HTTPException(404, "The website setup report file is missing.")
-    return intake, summary_path, report_path
+def _workspace(intake_id: str) -> dict[str, Any]:
+    try:
+        return ensure_review_workspace(intake_id)
+    except RuntimeError as exc:
+        message = str(exc)
+        status = 404 if message in {"Intake not found."} else 409
+        raise HTTPException(status, message) from exc
 
 
 @router.get(
@@ -46,7 +34,9 @@ def _review_record(intake_id: str) -> tuple[dict[str, Any], Path, Path]:
     response_class=PlainTextResponse,
 )
 def setup_report(intake_id: str) -> PlainTextResponse:
-    intake, _summary_path, report_path = _review_record(intake_id)
+    workspace = _workspace(intake_id)
+    intake = workspace["intake"]
+    report_path = Path(workspace["report_path"])
     filename = f"{intake['domain']}-setup-report.md"
     return PlainTextResponse(
         report_path.read_text(encoding="utf-8", errors="replace"),
@@ -63,7 +53,12 @@ def setup_report(intake_id: str) -> PlainTextResponse:
     dependencies=[Depends(require_admin)],
 )
 def review(intake_id: str) -> dict[str, Any]:
-    intake, summary_path, report_path = _review_record(intake_id)
+    workspace = _workspace(intake_id)
+    intake = workspace["intake"]
+    summary_path = Path(workspace["summary_path"])
+    report_path = Path(workspace["report_path"])
+    crawl = workspace.get("crawl") or {}
+    dataset = workspace.get("dataset") or {}
     return {
         "intake": intake,
         "summary": summary_path.read_text(
@@ -74,6 +69,15 @@ def review(intake_id: str) -> dict[str, Any]:
             encoding="utf-8",
             errors="replace",
         ),
+        "workspace": {
+            "ready": True,
+            "domain_directory": str(workspace["workspace"]),
+            "document_count": int(dataset.get("document_count") or intake.get("document_count") or 0),
+            "duplicate_count": int(dataset.get("duplicate_count") or intake.get("duplicate_count") or 0),
+            "chunk_count": int(dataset.get("chunk_count") or intake.get("chunk_count") or 0),
+            "crawl_attempts": int(crawl.get("attempts") or 0),
+            "crawl_stop_reason": str(crawl.get("stop_reason") or ""),
+        },
     }
 
 
@@ -85,7 +89,8 @@ def save_review_summary(
     intake_id: str,
     body: DraftUpdate,
 ) -> dict[str, str]:
-    intake, summary_path, report_path = _review_record(intake_id)
+    workspace = _workspace(intake_id)
+    intake = workspace["intake"]
     if intake.get("status") != "awaiting_review":
         raise HTTPException(
             409,
@@ -96,16 +101,28 @@ def save_review_summary(
     if not content:
         raise HTTPException(400, "Chato's corpus summary cannot be empty.")
 
-    original = summary_path.read_text(encoding="utf-8", errors="replace")
-    temporary = summary_path.with_name(f".{summary_path.name}.tmp")
-    temporary.write_text(content.rstrip() + "\n", encoding="utf-8")
-    temporary.replace(summary_path)
+    summary_path = Path(workspace["summary_path"])
+    report_path = Path(workspace["report_path"])
+    knowledge_path = Path(workspace["workspace"]) / "knowledge.md"
+    original_summary = summary_path.read_text(encoding="utf-8", errors="replace")
+    original_report = report_path.read_text(encoding="utf-8", errors="replace")
+    original_knowledge = knowledge_path.read_text(encoding="utf-8", errors="replace")
+
     try:
+        temporary = summary_path.with_name(f".{summary_path.name}.tmp")
+        temporary.write_text(content.rstrip() + "\n", encoding="utf-8")
+        temporary.replace(summary_path)
         update_setup_report_summary(report_path, content)
-    except (FileNotFoundError, RuntimeError, ValueError) as exc:
-        rollback = summary_path.with_name(f".{summary_path.name}.rollback")
-        rollback.write_text(original, encoding="utf-8")
-        rollback.replace(summary_path)
+        sync_review_summary(intake_id, content)
+    except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        for path, original in (
+            (summary_path, original_summary),
+            (report_path, original_report),
+            (knowledge_path, original_knowledge),
+        ):
+            rollback = path.with_name(f".{path.name}.rollback")
+            rollback.write_text(original, encoding="utf-8")
+            rollback.replace(path)
         raise HTTPException(500, str(exc)) from exc
 
     saved_at = utc_now()

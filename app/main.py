@@ -12,6 +12,7 @@ from app.api import router
 from app.chat_trace_install import install_chat_tracing
 from app.config import settings
 from app.db import init_db
+from app.review_activation_install import install_review_activation
 from app.services.registry import all_allowed_origins
 from app.services.worker import start_worker, stop_worker
 
@@ -74,4 +75,5 @@ app.include_router(router)
 app.include_router(admin_history_router)
 app.include_router(admin_domains_router)
 app.include_router(admin_setup_report_router)
+install_review_activation(app)
 install_chat_tracing(app)
