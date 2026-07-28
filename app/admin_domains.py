@@ -24,13 +24,17 @@ class DomainResetRequest(BaseModel):
 
 
 def _archive_root(domain: str) -> Path:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     return settings.data_dir / "domain-reset-archive" / stamp / domain
 
 
 def _trace_root() -> Path:
     configured = os.getenv("NERDO_CHAT_TRACE_DIR", "").strip()
-    return Path(configured).expanduser().resolve() if configured else (settings.data_dir / "chat-traces").resolve()
+    return (
+        Path(configured).expanduser().resolve()
+        if configured
+        else (settings.data_dir / "chat-traces").resolve()
+    )
 
 
 def _move_if_present(source: Path, destination: Path) -> str | None:
@@ -44,6 +48,9 @@ def _move_if_present(source: Path, destination: Path) -> str | None:
 def reset_domain_state(domain: str) -> dict[str, Any]:
     normalized = normalize_domain(domain)
     with connection() as conn:
+        # Prevent the worker from claiming a queued job between the safety
+        # check and deletion of that domain's intake records.
+        conn.execute("BEGIN IMMEDIATE")
         running = conn.execute(
             """
             SELECT j.id
@@ -75,7 +82,10 @@ def reset_domain_state(domain: str) -> dict[str, Any]:
 
         for intake_id in intake_ids:
             try:
-                conn.execute("DELETE FROM chunks_fts WHERE intake_id = ?", (intake_id,))
+                conn.execute(
+                    "DELETE FROM chunks_fts WHERE intake_id = ?",
+                    (intake_id,),
+                )
             except sqlite3.OperationalError:
                 pass
             conn.execute("DELETE FROM chunks WHERE intake_id = ?", (intake_id,))
@@ -87,7 +97,8 @@ def reset_domain_state(domain: str) -> dict[str, Any]:
             conn.execute("DELETE FROM intakes WHERE id = ?", (intake_id,))
 
         conn.execute(
-            "DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE domain = ?)",
+            "DELETE FROM messages WHERE conversation_id IN "
+            "(SELECT id FROM conversations WHERE domain = ?)",
             (normalized,),
         )
         conn.execute("DELETE FROM conversations WHERE domain = ?", (normalized,))
