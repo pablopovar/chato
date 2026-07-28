@@ -148,8 +148,9 @@ def _write_reconstructed_report(
     report_path: Path,
     *,
     summary_error: str | None = None,
+    include_existing_summary: bool = True,
 ) -> None:
-    summary = _summary_text(summary_path)
+    summary = _summary_text(summary_path) if include_existing_summary else ""
     discarded = fetch_one(
         "SELECT COUNT(*) AS count FROM documents WHERE intake_id = ? AND status = 'discarded'",
         (intake["id"],),
@@ -262,6 +263,8 @@ def _ensure_staging_directory(
     intake: dict[str, Any],
     pages_dir: Path,
     summary_path: Path,
+    *,
+    include_summary: bool = True,
 ) -> Path:
     root = review_domain_dir(intake)
     root.mkdir(parents=True, exist_ok=True)
@@ -273,10 +276,13 @@ def _ensure_staging_directory(
             encoding="utf-8",
         )
 
-    summary = _summary_text(summary_path)
+    summary = _summary_text(summary_path) if include_summary else ""
     knowledge_path = root / "knowledge.md"
-    if summary and not knowledge_path.is_file():
-        knowledge_path.write_text(summary.rstrip() + "\n", encoding="utf-8")
+    if summary:
+        if not knowledge_path.is_file():
+            knowledge_path.write_text(summary.rstrip() + "\n", encoding="utf-8")
+    elif not include_summary:
+        knowledge_path.unlink(missing_ok=True)
 
     source_pages = root / "source-pages"
     if not _has_markdown(source_pages):
@@ -305,6 +311,7 @@ def prepare_review_workspace(intake_id: str) -> dict[str, Any]:
     if report_path.is_file():
         report = report_path.read_text(encoding="utf-8", errors="replace")
         report_valid = CHATO_SECTION in report and REVIEW_SECTION in report
+    summary_needs_regeneration = not report_valid
     if not report_valid:
         _write_reconstructed_report(
             intake,
@@ -312,10 +319,17 @@ def prepare_review_workspace(intake_id: str) -> dict[str, Any]:
             crawl,
             summary_path,
             report_path,
+            include_existing_summary=False,
         )
 
-    root = _ensure_staging_directory(intake, pages_dir, summary_path)
-    draft_value = str(summary_path) if _summary_text(summary_path) else None
+    root = _ensure_staging_directory(
+        intake,
+        pages_dir,
+        summary_path,
+        include_summary=not summary_needs_regeneration,
+    )
+    summary_ready = bool(_summary_text(summary_path)) and not summary_needs_regeneration
+    draft_value = str(summary_path) if summary_ready else None
     execute(
         "UPDATE intakes SET draft_path = ?, report_path = ?, updated_at = ? WHERE id = ?",
         (draft_value, str(report_path), utc_now(), intake_id),
@@ -329,7 +343,8 @@ def prepare_review_workspace(intake_id: str) -> dict[str, Any]:
         "summary_path": summary_path,
         "report_path": report_path,
         "workspace": root,
-        "summary_ready": bool(_summary_text(summary_path)),
+        "summary_ready": summary_ready,
+        "summary_needs_regeneration": summary_needs_regeneration,
         "summary_error": None,
     }
 
@@ -339,8 +354,14 @@ def ensure_review_workspace(intake_id: str) -> dict[str, Any]:
     summary_path = Path(workspace["summary_path"])
     report_path = Path(workspace["report_path"])
     summary_error: str | None = None
+    regenerate = bool(workspace.get("summary_needs_regeneration"))
 
-    if not _summary_text(summary_path):
+    if regenerate or not _summary_text(summary_path):
+        if regenerate and summary_path.is_file():
+            backup = summary_path.with_name(f"{summary_path.name}.legacy-source-inventory.bak")
+            if not backup.exists():
+                shutil.copy2(summary_path, backup)
+            summary_path.unlink()
         try:
             interpret(
                 str(workspace["intake"]["domain"]),
@@ -371,6 +392,7 @@ def ensure_review_workspace(intake_id: str) -> dict[str, Any]:
         )
 
     workspace["summary_ready"] = bool(_summary_text(summary_path))
+    workspace["summary_needs_regeneration"] = False
     workspace["summary_error"] = summary_error
     workspace["intake"] = fetch_one("SELECT * FROM intakes WHERE id = ?", (intake_id,)) or workspace["intake"]
     return workspace
