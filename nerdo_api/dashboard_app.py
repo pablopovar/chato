@@ -3,6 +3,11 @@ from __future__ import annotations
 from dataclasses import replace
 
 from . import dashboard_domain, share_sessions
+from .chat_trace_ui import (
+    enhance_dashboard_page as enhance_trace_page,
+    install_debug_configuration,
+    install_trace_download,
+)
 from .document_foundry import install_document_foundry
 from .document_foundry_ui import enhance_dashboard_page as enhance_foundry_page
 from .main import app
@@ -13,10 +18,12 @@ from .share_background import (
 )
 
 
+install_debug_configuration()
 dashboard_domain.DOMAIN_PAGE = enhance_foundry_page(dashboard_domain.DOMAIN_PAGE)
 dashboard_domain.DOMAIN_PAGE = enhance_share_background_page(
     dashboard_domain.DOMAIN_PAGE
 )
+dashboard_domain.DOMAIN_PAGE = enhance_trace_page(dashboard_domain.DOMAIN_PAGE)
 share_sessions.SESSION_PAGE = enhance_session_page(share_sessions.SESSION_PAGE)
 
 from .share_namespace import install_share_namespace, public_app_base_url
@@ -29,6 +36,10 @@ if not getattr(app.state, "dashboard_domain_installed", False):
     )
     dashboard_domain.install_dashboard_domain(app, dashboard_settings)
     app.state.dashboard_domain_installed = True
+
+if not getattr(app.state, "chat_trace_download_installed", False):
+    install_trace_download(app, app.state.settings)
+    app.state.chat_trace_download_installed = True
 
 if not getattr(app.state, "share_sessions_installed", False):
     install_share_namespace(app, app.state.settings)
