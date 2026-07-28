@@ -121,6 +121,32 @@ def test_mailbox_returns_usage_for_bar_separated_add_domain() -> None:
     assert result.body == ADD_DOMAIN_USAGE
 
 
+def test_reset_command_executes_immediately() -> None:
+    class FakeCommands(MailboxDomainCommands):
+        def __init__(self) -> None:
+            pass
+
+        def _resolve_domain(self, parsed, command_domain):
+            return command_domain, None
+
+        def reset(self, domain: str) -> str:
+            return f"reset:{domain}"
+
+    parsed = ParsedCommand(
+        sender="admin@example.net",
+        subject="",
+        body="",
+        command="reset example.com",
+        domain=None,
+        attachments=(),
+    )
+
+    result = FakeCommands().execute(parsed)
+
+    assert result.domain == "example.com"
+    assert result.body == "reset:example.com"
+
+
 def test_command_domain_is_read_from_document_commands() -> None:
     assert (
         DomainCommands._command_domain("list documents example.com")
