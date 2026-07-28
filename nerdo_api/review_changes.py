@@ -60,12 +60,15 @@ def install_review_changes(
                 409,
                 f"{normalized} cannot be sent back while status is {intake.get('status')}.",
             )
-        archived = _archive_review_workspaces(settings, normalized)
+
+        # Queue the authoritative Core operation first. The review workspace is
+        # archived only after Core accepts the fresh processing pass.
         result = _core_request(
             settings,
             "POST",
             f"/admin/intakes/{intake['id']}/retry",
         )
+        archived = _archive_review_workspaces(settings, normalized)
         _update_sites_by_intake(
             storage,
             str(intake["id"]),
