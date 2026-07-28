@@ -1,6 +1,11 @@
 from email.message import EmailMessage
 
-from nerdo_mail.processor import ADD_DOMAIN_RE, DomainCommands, parse_command
+from nerdo_mail.command_dispatch import (
+    ADD_DOMAIN_COMMAND_RE,
+    ADD_DOMAIN_USAGE,
+    MailboxDomainCommands,
+)
+from nerdo_mail.processor import DomainCommands, ParsedCommand, parse_command
 
 
 def test_parses_explicit_domain_and_command() -> None:
@@ -54,14 +59,66 @@ def test_collects_only_markdown_attachments() -> None:
     assert [name for name, _raw in parsed.attachments] == ["source.md"]
 
 
-def test_add_domain_command_format() -> None:
-    match = ADD_DOMAIN_RE.fullmatch(
-        "add domain example.com|owner@example.net"
+def test_add_domain_command_format_uses_spaces_only() -> None:
+    match = ADD_DOMAIN_COMMAND_RE.fullmatch(
+        "add domain example.com owner@example.net"
     )
 
     assert match is not None
     assert match.group(1) == "example.com"
     assert match.group(2) == "owner@example.net"
+
+
+def test_add_domain_command_rejects_bar_separators() -> None:
+    assert (
+        ADD_DOMAIN_COMMAND_RE.fullmatch(
+            "add domain example.com|owner@example.net"
+        )
+        is None
+    )
+
+
+def test_mailbox_dispatches_plain_add_domain_command() -> None:
+    class FakeCommands(MailboxDomainCommands):
+        def __init__(self) -> None:
+            pass
+
+        def add_domain(self, sender: str, domain: str, email: str) -> str:
+            return f"{sender}:{domain}:{email}"
+
+    parsed = ParsedCommand(
+        sender="admin@example.net",
+        subject="",
+        body="",
+        command="add domain example.com owner@example.net",
+        domain=None,
+        attachments=(),
+    )
+
+    result = FakeCommands().execute(parsed)
+
+    assert result.domain == "example.com"
+    assert result.body == "admin@example.net:example.com:owner@example.net"
+
+
+def test_mailbox_returns_usage_for_bar_separated_add_domain() -> None:
+    class FakeCommands(MailboxDomainCommands):
+        def __init__(self) -> None:
+            pass
+
+    parsed = ParsedCommand(
+        sender="admin@example.net",
+        subject="",
+        body="",
+        command="add domain example.com|owner@example.net",
+        domain=None,
+        attachments=(),
+    )
+
+    result = FakeCommands().execute(parsed)
+
+    assert result.domain is None
+    assert result.body == ADD_DOMAIN_USAGE
 
 
 def test_command_domain_is_read_from_document_commands() -> None:
