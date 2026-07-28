@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import hmac
+import json
+import re
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import Response
 
 from app.config import settings
 from app.db import fetch_all, fetch_one
+from app.services.chat_trace import session_trace_bundle, trace_count
 from app.services.registry import normalize_domain
 
 
@@ -30,6 +34,20 @@ def _domain(value: str) -> str:
         return normalize_domain(value)
     except (UnicodeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail="Invalid domain.") from exc
+
+
+def _conversation(domain: str, session_id: str) -> dict[str, Any]:
+    conversation = fetch_one(
+        """
+        SELECT id AS session_id, domain, created_at, updated_at
+        FROM conversations
+        WHERE id = ? AND domain = ?
+        """,
+        (session_id, domain),
+    )
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return conversation
 
 
 @router.get(
@@ -79,6 +97,8 @@ def domain_conversations(
         """,
         (normalized, limit, offset),
     )
+    for row in rows:
+        row["trace_count"] = trace_count(normalized, str(row["session_id"]))
     return {
         "domain": normalized,
         "total": int((total_row or {}).get("count") or 0),
@@ -97,17 +117,7 @@ def domain_conversation(
     session_id: str,
 ) -> dict[str, Any]:
     normalized = _domain(domain)
-    conversation = fetch_one(
-        """
-        SELECT id AS session_id, domain, created_at, updated_at
-        FROM conversations
-        WHERE id = ? AND domain = ?
-        """,
-        (session_id, normalized),
-    )
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found.")
-
+    conversation = _conversation(normalized, session_id)
     messages = fetch_all(
         """
         SELECT id, role, content, created_at
@@ -118,6 +128,36 @@ def domain_conversation(
         (session_id,),
     )
     return {
-        "conversation": conversation,
+        "conversation": {
+            **conversation,
+            "trace_count": trace_count(normalized, session_id),
+        },
         "messages": messages,
     }
+
+
+@router.get(
+    "/admin/domains/{domain}/conversations/{session_id}/trace",
+    dependencies=[Depends(require_admin)],
+)
+def download_conversation_trace(
+    domain: str,
+    session_id: str,
+) -> Response:
+    normalized = _domain(domain)
+    _conversation(normalized, session_id)
+    bundle = session_trace_bundle(normalized, session_id)
+    if not bundle["trace_count"]:
+        raise HTTPException(status_code=404, detail="No debug trace exists for this conversation.")
+
+    safe_session = re.sub(r"[^a-zA-Z0-9._-]+", "-", session_id).strip("-.")[:48]
+    filename = f"{normalized}-{safe_session or 'session'}-trace.json"
+    return Response(
+        content=json.dumps(bundle, indent=2, ensure_ascii=False) + "\n",
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
