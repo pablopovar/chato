@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import shutil
 from pathlib import Path
@@ -8,9 +9,13 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from app.config import settings
-from app.db import execute, fetch_one, utc_now
+from app.db import execute, fetch_all, fetch_one, utc_now
 from app.services.interpreter import interpret
-from app.services.setup_report import _embedded_summary
+from app.services.setup_report import (
+    CHATO_SECTION,
+    REVIEW_SECTION,
+    _embedded_summary,
+)
 
 
 def _bytes_label(value: int) -> str:
@@ -45,18 +50,80 @@ def _crawl(dataset: dict[str, Any] | None) -> dict[str, Any] | None:
     return fetch_one("SELECT * FROM crawl_runs WHERE id = ?", (crawl_id,)) if crawl_id else None
 
 
+def _has_markdown(path: Path) -> bool:
+    return path.is_dir() and any(item.is_file() for item in path.rglob("*.md"))
+
+
+def _safe_page_name(value: str, fallback: str) -> str:
+    name = re.sub(r"[^a-zA-Z0-9._-]+", "-", Path(value).name).strip(".-")
+    if not name:
+        name = fallback
+    if Path(name).suffix.casefold() not in {".md", ".markdown"}:
+        name += ".md"
+    return name
+
+
+def _materialize_pages_from_database(intake: dict[str, Any]) -> Path:
+    target = settings.data_dir / "intakes" / str(intake["id"]) / "review-source-pages"
+    if _has_markdown(target):
+        return target
+
+    rows = fetch_all(
+        """
+        SELECT id, status, duplicate_of, clean_path, markdown
+        FROM documents
+        WHERE intake_id = ?
+        ORDER BY created_at, id
+        """,
+        (intake["id"],),
+    )
+    target.mkdir(parents=True, exist_ok=True)
+    written = 0
+    used: set[str] = set()
+
+    for row in rows:
+        status = str(row.get("status") or "").casefold()
+        if row.get("duplicate_of") or status in {"duplicate", "discarded", "rejected"}:
+            continue
+
+        clean_path = Path(str(row.get("clean_path") or ""))
+        markdown = str(row.get("markdown") or "")
+        if clean_path.is_file():
+            raw = clean_path.read_bytes()
+            proposed = clean_path.name
+        elif markdown.strip():
+            raw = markdown.rstrip().encode("utf-8") + b"\n"
+            proposed = f"page-{str(row['id'])[:12]}.md"
+        else:
+            continue
+
+        name = _safe_page_name(proposed, f"page-{str(row['id'])[:12]}.md")
+        if name.casefold() in used or (target / name).exists():
+            stem = Path(name).stem
+            suffix = Path(name).suffix or ".md"
+            name = f"{stem}-{str(row['id'])[:8]}{suffix}"
+        used.add(name.casefold())
+        (target / name).write_bytes(raw)
+        written += 1
+
+    if not written:
+        raise RuntimeError(
+            "The intake has no canonical Markdown pages in either the prepared dataset or the document database."
+        )
+    return target
+
+
 def _pages_dir(intake: dict[str, Any], dataset: dict[str, Any] | None) -> Path:
     dataset_value = str(
         intake.get("dataset_path")
         or (dataset or {}).get("dataset_path")
         or ""
     ).strip()
-    if not dataset_value:
-        raise RuntimeError("The intake has no prepared dataset path.")
-    path = Path(dataset_value) / "cleaned" / "pages"
-    if not path.is_dir() or not any(path.glob("*.md")):
-        raise RuntimeError("The intake has no canonical Markdown pages to review.")
-    return path
+    if dataset_value:
+        candidate = Path(dataset_value) / "cleaned" / "pages"
+        if _has_markdown(candidate):
+            return candidate
+    return _materialize_pages_from_database(intake)
 
 
 def _summary_path(intake: dict[str, Any]) -> Path:
@@ -69,17 +136,20 @@ def _report_path(intake: dict[str, Any]) -> Path:
     return Path(value) if value else settings.data_dir / "intakes" / str(intake["id"]) / "setup-report.md"
 
 
+def _summary_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="replace").strip() if path.is_file() else ""
+
+
 def _write_reconstructed_report(
     intake: dict[str, Any],
     dataset: dict[str, Any] | None,
     crawl: dict[str, Any] | None,
     summary_path: Path,
     report_path: Path,
+    *,
+    summary_error: str | None = None,
 ) -> None:
-    summary = summary_path.read_text(encoding="utf-8", errors="replace").strip()
-    if not summary:
-        raise RuntimeError("Chato produced an empty corpus summary.")
-
+    summary = _summary_text(summary_path)
     discarded = fetch_one(
         "SELECT COUNT(*) AS count FROM documents WHERE intake_id = ? AND status = 'discarded'",
         (intake["id"],),
@@ -91,6 +161,16 @@ def _write_reconstructed_report(
     documents = int((dataset or {}).get("document_count") or intake.get("document_count") or 0)
     duplicates = int((dataset or {}).get("duplicate_count") or intake.get("duplicate_count") or 0)
     chunks = int((dataset or {}).get("chunk_count") or intake.get("chunk_count") or 0)
+
+    chato_section = _embedded_summary(summary) if summary else (
+        "Chato has not completed the corpus summary yet."
+        + (f"\n\nGeneration error: `{summary_error}`" if summary_error else "")
+    )
+    review_status = (
+        "The website corpus, Chato summary, and initial runtime configuration are ready for review before activation."
+        if summary
+        else "The website corpus and runtime configuration are available for review. Chato's corpus summary must be completed before activation."
+    )
 
     lines = [
         f"# Website Setup Report: {intake['domain']}",
@@ -133,13 +213,13 @@ def _write_reconstructed_report(
         "- Skipped, duplicate, discarded, inaccessible, no-index, or out-of-scope pages may contain information absent from the prepared corpus.",
         "- Chato's summary below is grounded only in the prepared canonical corpus.",
         "",
-        "## Chato — Corpus Summary",
+        CHATO_SECTION,
         "",
-        _embedded_summary(summary),
+        chato_section,
         "",
-        "## Review Status",
+        REVIEW_SECTION,
         "",
-        "The website corpus, Chato summary, and initial runtime configuration are ready for review before activation.",
+        review_status,
         "",
     ]
     report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -193,18 +273,20 @@ def _ensure_staging_directory(
             encoding="utf-8",
         )
 
+    summary = _summary_text(summary_path)
     knowledge_path = root / "knowledge.md"
-    summary = summary_path.read_text(encoding="utf-8", errors="replace")
-    if not knowledge_path.is_file():
+    if summary and not knowledge_path.is_file():
         knowledge_path.write_text(summary.rstrip() + "\n", encoding="utf-8")
 
     source_pages = root / "source-pages"
-    if not source_pages.is_dir():
+    if not _has_markdown(source_pages):
+        if source_pages.exists():
+            shutil.rmtree(source_pages)
         shutil.copytree(pages_dir, source_pages)
     return root
 
 
-def ensure_review_workspace(intake_id: str) -> dict[str, Any]:
+def prepare_review_workspace(intake_id: str) -> dict[str, Any]:
     intake = fetch_one("SELECT * FROM intakes WHERE id = ?", (intake_id,))
     if not intake:
         raise RuntimeError("Intake not found.")
@@ -219,11 +301,11 @@ def ensure_review_workspace(intake_id: str) -> dict[str, Any]:
     summary_path = _summary_path(intake)
     report_path = _report_path(intake)
 
-    # Intakes completed before setup reports existed are upgraded once on first
-    # review. Chato rereads the canonical corpus rather than exposing the old
-    # source inventory as its understanding.
-    if not report_path.is_file():
-        interpret(str(intake["domain"]), pages_dir, summary_path)
+    report_valid = False
+    if report_path.is_file():
+        report = report_path.read_text(encoding="utf-8", errors="replace")
+        report_valid = CHATO_SECTION in report and REVIEW_SECTION in report
+    if not report_valid:
         _write_reconstructed_report(
             intake,
             dataset,
@@ -231,27 +313,71 @@ def ensure_review_workspace(intake_id: str) -> dict[str, Any]:
             summary_path,
             report_path,
         )
-    elif not summary_path.is_file():
-        interpret(str(intake["domain"]), pages_dir, summary_path)
 
     root = _ensure_staging_directory(intake, pages_dir, summary_path)
+    draft_value = str(summary_path) if _summary_text(summary_path) else None
     execute(
         "UPDATE intakes SET draft_path = ?, report_path = ?, updated_at = ? WHERE id = ?",
-        (str(summary_path), str(report_path), utc_now(), intake_id),
+        (draft_value, str(report_path), utc_now(), intake_id),
     )
     intake = fetch_one("SELECT * FROM intakes WHERE id = ?", (intake_id,)) or intake
     return {
         "intake": intake,
         "dataset": dataset,
         "crawl": crawl,
+        "pages_dir": pages_dir,
         "summary_path": summary_path,
         "report_path": report_path,
         "workspace": root,
+        "summary_ready": bool(_summary_text(summary_path)),
+        "summary_error": None,
     }
 
 
+def ensure_review_workspace(intake_id: str) -> dict[str, Any]:
+    workspace = prepare_review_workspace(intake_id)
+    summary_path = Path(workspace["summary_path"])
+    report_path = Path(workspace["report_path"])
+    summary_error: str | None = None
+
+    if not _summary_text(summary_path):
+        try:
+            interpret(
+                str(workspace["intake"]["domain"]),
+                Path(workspace["pages_dir"]),
+                summary_path,
+            )
+            summary = _summary_text(summary_path)
+            if not summary:
+                raise RuntimeError("Chato produced an empty corpus summary.")
+            knowledge = Path(workspace["workspace"]) / "knowledge.md"
+            temporary = knowledge.with_name(f".{knowledge.name}.tmp")
+            temporary.write_text(summary.rstrip() + "\n", encoding="utf-8")
+            temporary.replace(knowledge)
+            execute(
+                "UPDATE intakes SET draft_path = ?, updated_at = ? WHERE id = ?",
+                (str(summary_path), utc_now(), intake_id),
+            )
+        except Exception as exc:  # Keep the review workspace accessible.
+            summary_error = f"{type(exc).__name__}: {exc}"
+
+        _write_reconstructed_report(
+            workspace["intake"],
+            workspace.get("dataset"),
+            workspace.get("crawl"),
+            summary_path,
+            report_path,
+            summary_error=summary_error,
+        )
+
+    workspace["summary_ready"] = bool(_summary_text(summary_path))
+    workspace["summary_error"] = summary_error
+    workspace["intake"] = fetch_one("SELECT * FROM intakes WHERE id = ?", (intake_id,)) or workspace["intake"]
+    return workspace
+
+
 def sync_review_summary(intake_id: str, content: str) -> Path:
-    workspace = ensure_review_workspace(intake_id)
+    workspace = prepare_review_workspace(intake_id)
     knowledge = Path(workspace["workspace"]) / "knowledge.md"
     temporary = knowledge.with_name(f".{knowledge.name}.tmp")
     temporary.write_text(content.rstrip() + "\n", encoding="utf-8")
