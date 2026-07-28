@@ -33,7 +33,6 @@ start example.com
 activate example.com
 retry example.com
 reset example.com
-confirm reset example.com
 enable example.com
 disable example.com
 add documents example.com
@@ -55,7 +54,17 @@ The command may be the first non-empty line of the message or the value of a `Co
 
 `remove` is deliberately two-step. The first message returns the exact confirmation command. Confirmation calls the API, removes the deployed domain from service, and archives its directory under `users/.removed/<timestamp>/` rather than deleting it.
 
-`reset` is also two-step. Confirmation calls the API to archive the deployed corpus, remove the domain's Core intake/dataset/conversation state, clear gateway and shared-session state, and create a new queued intake using the existing website URL and owner email. Archives are retained under `data/domain-reset-archive/` and `users/.reset/`.
+`reset example.com` is one-step. It calls the API immediately to archive the deployed corpus, remove the domain's Core intake/dataset/conversation state, clear gateway and shared-session state, and create a new queued intake using the existing website URL and owner email. Archives are retained under `data/domain-reset-archive/` and `users/.reset/`.
+
+## Website setup reports
+
+When processing reaches `awaiting_review`, Nerdo retrieves the completed setup report from Core and sends it once per recipient:
+
+- configured reviewers receive the processing report, Chato's corpus summary, dashboard link, and activation command;
+- the website owner receives the same report and is asked to reply with corrections, missing information, or questions;
+- failed deliveries retry after five minutes, up to three attempts.
+
+The report separates Nerdo's processing facts from Chato's understanding. Chato's summary is required and is later deployed as `knowledge.md`; the combined setup report remains outside the active corpus.
 
 ## Domain operations API
 

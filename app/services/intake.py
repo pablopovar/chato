@@ -22,6 +22,7 @@ from app.services.email_transport import send_email
 from app.services.indexer import build_index
 from app.services.interpreter import interpret
 from app.services.registry import normalize_domain
+from app.services.setup_report import build_setup_report
 
 
 def _slug(value: str) -> str:
@@ -79,7 +80,8 @@ def process_intake(intake_id: str) -> None:
     dataset_dir = intake_dir / "datasets" / dataset_version_id
     raw_dir = dataset_dir / "raw"
     cleaned_dir = dataset_dir / "cleaned"
-    draft_path = intake_dir / "draft.md"
+    summary_path = intake_dir / "chato-summary.md"
+    report_path = intake_dir / "setup-report.md"
     now = utc_now()
 
     dataset_dir.mkdir(parents=True, exist_ok=False)
@@ -103,6 +105,7 @@ def process_intake(intake_id: str) -> None:
         UPDATE intakes
         SET status = 'crawling', error = NULL,
             dataset_version_id = ?, dataset_path = ?,
+            draft_path = NULL, report_path = NULL,
             fetched_page_count = 0, document_count = 0,
             duplicate_count = 0, chunk_count = 0,
             updated_at = ?
@@ -221,12 +224,26 @@ def process_intake(intake_id: str) -> None:
             ),
         )
 
-        # Interpretation remains the bridge to the existing review flow. It
-        # consumes the canonical cleaned page files, not raw HTML.
+        # Chato must read the canonical corpus and produce a usable summary.
+        # Model failure is a setup failure; it is not replaced with a source
+        # inventory that could later pollute retrieval as knowledge.md.
         interpret(
             intake["domain"],
             cleaned_dir / "pages",
-            draft_path,
+            summary_path,
+        )
+        completed_at = utc_now()
+        build_setup_report(
+            domain=intake["domain"],
+            website_url=intake["website_url"],
+            owner_email=intake["email"],
+            started_at=intake["created_at"],
+            completed_at=completed_at,
+            crawl_result=crawl_result,
+            clean_result=clean_result,
+            index_result=index_result,
+            chato_summary_path=summary_path,
+            report_path=report_path,
         )
 
         execute(
@@ -235,15 +252,16 @@ def process_intake(intake_id: str) -> None:
             SET status = 'ready', updated_at = ?
             WHERE id = ?
             ''',
-            (utc_now(), dataset_version_id),
+            (completed_at, dataset_version_id),
         )
         execute(
             '''
             UPDATE intakes
-            SET status = 'awaiting_review', draft_path = ?, updated_at = ?
+            SET status = 'awaiting_review', draft_path = ?, report_path = ?,
+                updated_at = ?
             WHERE id = ?
             ''',
-            (str(draft_path), utc_now(), intake_id),
+            (str(summary_path), str(report_path), completed_at, intake_id),
         )
     except Exception as exc:
         execute(
@@ -305,11 +323,15 @@ def activate_intake(
     if not intake:
         raise RuntimeError("Intake not found.")
     if not intake["draft_path"]:
-        raise RuntimeError("The intake has no review draft.")
+        raise RuntimeError("The intake has no Chato corpus summary.")
+    if not intake.get("report_path"):
+        raise RuntimeError("The intake has no completed setup report.")
 
     draft_path = Path(intake["draft_path"])
     if not draft_path.is_file():
-        raise RuntimeError("The review draft file is missing.")
+        raise RuntimeError("The Chato corpus summary file is missing.")
+    if not Path(intake["report_path"]).is_file():
+        raise RuntimeError("The website setup report file is missing.")
 
     email_local = intake["email"].split("@", 1)[0]
     user_slug = _slug(email_local)
@@ -377,8 +399,8 @@ def activate_intake(
     body = welcome_message or (
         f"Your initial Chato & Nerdo is ready.\n\n"
         f"Test it here:\n{public_test_url}\n\n"
-        "This is an initial interpretation of your website. "
-        "Reply with corrections or missing information."
+        "The activated knowledge includes Chato's reviewed corpus summary "
+        "and the canonical website pages. Reply with corrections or missing information."
     )
 
     send_email(

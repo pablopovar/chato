@@ -94,6 +94,7 @@ def init_db() -> None:
                 status TEXT NOT NULL,
                 clarification_count INTEGER NOT NULL DEFAULT 0,
                 draft_path TEXT,
+                report_path TEXT,
                 error TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -268,6 +269,7 @@ def init_db() -> None:
 
         _ensure_column(conn, "intakes", "dataset_version_id", "TEXT")
         _ensure_column(conn, "intakes", "dataset_path", "TEXT")
+        _ensure_column(conn, "intakes", "report_path", "TEXT")
         _ensure_column(
             conn,
             "intakes",

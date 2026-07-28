@@ -13,6 +13,10 @@ from .document_foundry_ui import enhance_dashboard_page as enhance_foundry_page
 from .domain_approval import install_domain_approval, remove_duplicate_start_routes
 from .domain_operations import install_domain_operations
 from .main import app
+from .setup_review import (
+    enhance_root_page as enhance_setup_review_root,
+    install_setup_review,
+)
 from .share_background import (
     enhance_dashboard_page as enhance_share_background_page,
     enhance_session_page,
@@ -21,6 +25,7 @@ from .share_background import (
 
 
 install_debug_configuration()
+dashboard_domain.ROOT_PAGE = enhance_setup_review_root(dashboard_domain.ROOT_PAGE)
 dashboard_domain.DOMAIN_PAGE = enhance_foundry_page(dashboard_domain.DOMAIN_PAGE)
 dashboard_domain.DOMAIN_PAGE = enhance_share_background_page(
     dashboard_domain.DOMAIN_PAGE
@@ -38,6 +43,9 @@ if not getattr(app.state, "domain_operations_installed", False):
     install_domain_operations(app, app.state.settings, app.state.storage)
 
 remove_duplicate_start_routes(app)
+
+if not getattr(app.state, "setup_review_installed", False):
+    install_setup_review(app, app.state.settings)
 
 if not getattr(app.state, "dashboard_domain_installed", False):
     dashboard_settings = replace(
