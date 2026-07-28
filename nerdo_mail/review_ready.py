@@ -182,10 +182,15 @@ class ReviewReadyNotifier:
         *,
         reviewer: bool,
     ) -> str:
+        review_url = (
+            self.dashboard_url.rstrip("/")
+            + f"/reviews/{review.intake_id}"
+        )
         next_step = (
-            "Activate it by replying to Nerdo with:\n"
-            f"activate {review.domain}\n\n"
-            f"Dashboard:\n{self.dashboard_url}\n"
+            "Review and activate this domain in the dashboard:\n"
+            f"{review_url}\n\n"
+            "The same activation remains available by replying to Nerdo with:\n"
+            f"activate {review.domain}\n"
             if reviewer
             else (
                 "Review the report and reply to this email with corrections, "
@@ -200,8 +205,7 @@ class ReviewReadyNotifier:
             "Status: awaiting_review\n"
             f"Intake: {review.intake_id}\n"
             f"Updated: {review.updated_at}\n\n"
-            "The setup report follows. Nerdo reports what was retrieved and processed; "
-            "Chato reports what it understands from the completed corpus.\n\n"
+            "Nerdo's processing report and Chato's corpus summary follow.\n\n"
             "---\n\n"
             f"{report}\n\n"
             "---\n\n"
@@ -235,7 +239,7 @@ class ReviewReadyNotifier:
                     reviewer = recipient in self.settings.admin_emails
                     send_email(
                         to_email=recipient,
-                        subject=f"Nerdo setup report: {review.domain}",
+                        subject=f"Nerdo website processing report: {review.domain}",
                         body=self._body(
                             review,
                             report,
