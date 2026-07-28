@@ -3,9 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI, Request, Response
+from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
+import app.chat_trace_install as trace_install
+from app.chat_trace_install import install_chat_tracing
 from app.services.chat_trace import (
     TraceRecorder,
+    current_trace,
     load_session_traces,
     reset_current_trace,
     session_trace_bundle,
@@ -101,6 +107,63 @@ def test_retrieval_records_all_candidates_and_selected_hits(
     assert event["data"]["candidate_count"] >= 2
     assert event["data"]["selected_count"] == len(hits)
     assert all("text" in item for item in event["data"]["candidates"])
+
+
+def test_chat_route_installer_records_only_authenticated_debug_requests(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NERDO_CHAT_TRACE_DIR", str(tmp_path / "traces"))
+    monkeypatch.setattr(trace_install, "load_bot", lambda _domain: _config(tmp_path))
+
+    class ChatBody(BaseModel):
+        domain: str
+        key: str
+        question: str
+        session_id: str | None = None
+
+    app = FastAPI()
+
+    @app.post("/chat")
+    def chat(body: ChatBody, request: Request, response: Response) -> dict[str, str]:
+        recorder = current_trace()
+        if recorder:
+            recorder.event("route.inside")
+        return {
+            "request_id": "route-request",
+            "session_id": str(body.session_id),
+            "answer": "ok",
+        }
+
+    install_chat_tracing(app)
+    client = TestClient(app)
+
+    valid = client.post(
+        "/chat",
+        json={
+            "domain": "example.com",
+            "key": "abcdefgh",
+            "question": "What is this?",
+        },
+    )
+    assert valid.status_code == 200
+    session_id = valid.json()["session_id"]
+    assert session_id and session_id != "None"
+    traces = load_session_traces("example.com", session_id)
+    assert traces[0]["request_id"] == "route-request"
+    assert any(item["stage"] == "route.inside" for item in traces[0]["events"])
+
+    invalid = client.post(
+        "/chat",
+        json={
+            "domain": "example.com",
+            "key": "wrong-key",
+            "question": "Do not trace this.",
+            "session_id": "unauthorized-session",
+        },
+    )
+    assert invalid.status_code == 200
+    assert trace_count("example.com", "unauthorized-session") == 0
 
 
 def test_dashboard_adds_debug_setting_and_trace_download() -> None:
