@@ -48,6 +48,14 @@ def _copy_with_session(body: Any, session_id: str) -> Any:
     return body
 
 
+def _response_payload(result: Any) -> Any:
+    if hasattr(result, "model_dump"):
+        return result.model_dump()
+    if hasattr(result, "dict"):
+        return result.dict()
+    return result
+
+
 def _wrapper(original: Callable[..., Any]) -> Callable[..., Any]:
     def traced_chat(body: Any, request: Any, response: Any) -> Any:
         try:
@@ -57,6 +65,7 @@ def _wrapper(original: Callable[..., Any]) -> Callable[..., Any]:
         if config is None or not config.debug:
             return original(body=body, request=request, response=response)
 
+        supplied_session_id = bool(getattr(body, "session_id", None))
         session_id = str(getattr(body, "session_id", "") or secrets.token_urlsafe(24))
         body = _copy_with_session(body, session_id)
         recorder = TraceRecorder(
@@ -79,14 +88,14 @@ def _wrapper(original: Callable[..., Any]) -> Callable[..., Any]:
                 ),
             },
             question=str(body.question),
-            supplied_session_id=bool(getattr(body, "session_id", None)),
+            supplied_session_id=supplied_session_id,
             session_id=session_id,
             configuration=_configuration_snapshot(config),
         )
 
         try:
             result = original(body=body, request=request, response=response)
-            payload = result.model_dump() if hasattr(result, "model_dump") else result
+            payload = _response_payload(result)
             if isinstance(payload, dict) and payload.get("request_id"):
                 recorder.request_id = str(payload["request_id"])
             recorder.event("response.returned", response=payload)
