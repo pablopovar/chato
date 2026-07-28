@@ -21,15 +21,16 @@ When `debug` is absent or false, no trace file is created.
 Each authenticated chat request records, in execution order:
 
 1. request metadata and the non-secret domain configuration;
-2. prior conversation history and the retrieval query;
-3. normalized query tokens;
-4. every positively scored retrieval candidate, including full chunk text;
-5. the selected retrieval results;
-6. the assembled system prompt, website context, and complete model message payload;
-7. the OpenAI-compatible model endpoint, request parameters, status, response headers, and response body;
-8. a full exception traceback when the model or request fails;
-9. any extractive fallback decision and its source paths;
-10. the final Chato API response and response mode.
+2. conversation lookup or creation, history reads, message writes, and the final conversation update;
+3. prior conversation history and the retrieval query;
+4. normalized query tokens;
+5. every positively scored retrieval candidate, including full chunk text;
+6. the selected retrieval results;
+7. the assembled system prompt, website context, and complete model message payload;
+8. the OpenAI-compatible model endpoint, request parameters, status, response headers, and response body;
+9. a full exception traceback when the model or request fails;
+10. any extractive fallback decision and its source paths;
+11. the final Chato API response and response mode.
 
 Bot keys and model-provider API keys are never written. The trace records only whether each key was configured.
 
@@ -59,4 +60,4 @@ Core serves the underlying export only through its admin-token-protected endpoin
 
 ## Operational warning
 
-A trace contains complete retrieved source chunks, prompts, conversation history, model payloads, model responses, and exception details. Enable it only while diagnosing a domain and disable it afterward. Existing trace files are retained until removed from the Core data directory.
+A trace contains complete retrieved source chunks, prompts, conversation history, model payloads, model responses, SQL statements and values used by the chat lifecycle, and exception details. Enable it only while diagnosing a domain and disable it afterward. Existing trace files are retained until removed from the Core data directory.
