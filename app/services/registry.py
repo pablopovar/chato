@@ -21,6 +21,7 @@ class BotConfig:
     domain: str
     directory: Path
     enabled: bool
+    debug: bool
     key: str
     name: str
     system_prompt: str
@@ -92,6 +93,7 @@ def load_bot(domain: str) -> BotConfig | None:
         domain=configured_domain,
         directory=directory,
         enabled=bool(raw.get("enabled", True)),
+        debug=bool(raw.get("debug", False)),
         key=key,
         name=str(raw.get("name", configured_domain)).strip(),
         system_prompt=system_prompt,
