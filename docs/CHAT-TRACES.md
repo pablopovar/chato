@@ -60,4 +60,4 @@ Core serves the underlying export only through its admin-token-protected endpoin
 
 ## Operational warning
 
-A trace contains complete retrieved source chunks, prompts, conversation history, model payloads, model responses, SQL statements and values used by the chat lifecycle, and exception details. Enable it only while diagnosing a domain and disable it afterward. Existing trace files are retained until removed from the Core data directory.
+A trace contains complete retrieved source chunks, prompts, conversation history, model payloads, model responses, SQL statements and values used by the chat lifecycle, and exception details. Enable it only while diagnosing a domain and disable it afterward. Disabling tracing stops new trace creation; existing trace files remain until removed from the Core data directory.
