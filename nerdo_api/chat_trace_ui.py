@@ -21,6 +21,9 @@ STYLE = """
 """.strip()
 
 
+STYLE_BLOCK = f"<style>\n{STYLE}\n</style>\n"
+
+
 def install_debug_configuration() -> None:
     if getattr(dashboard_domain, "_chat_trace_debug_installed", False):
         return
@@ -58,11 +61,14 @@ def _replace_once(page: str, old: str, new: str, label: str) -> str:
 
 
 def enhance_dashboard_page(page: str) -> str:
+    if "Record full chat traces" in page:
+        return page
+
     page = _replace_once(
         page,
-        "</style></head>",
-        STYLE + "\n</style></head>",
-        "style",
+        "</head>",
+        STYLE_BLOCK + "</head>",
+        "head",
     )
     page = _replace_once(
         page,
