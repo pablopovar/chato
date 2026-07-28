@@ -14,6 +14,7 @@ from .domain_approval import install_domain_approval, remove_duplicate_start_rou
 from .domain_operations import install_domain_operations
 from .main import app
 from .setup_review import (
+    enhance_domain_page as enhance_setup_review_domain,
     enhance_root_page as enhance_setup_review_root,
     install_setup_review,
 )
@@ -26,6 +27,7 @@ from .share_background import (
 
 install_debug_configuration()
 dashboard_domain.ROOT_PAGE = enhance_setup_review_root(dashboard_domain.ROOT_PAGE)
+dashboard_domain.DOMAIN_PAGE = enhance_setup_review_domain(dashboard_domain.DOMAIN_PAGE)
 dashboard_domain.DOMAIN_PAGE = enhance_foundry_page(dashboard_domain.DOMAIN_PAGE)
 dashboard_domain.DOMAIN_PAGE = enhance_share_background_page(
     dashboard_domain.DOMAIN_PAGE
