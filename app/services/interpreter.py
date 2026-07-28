@@ -180,6 +180,7 @@ def interpret(
             ],
             temperature=0.0,
             max_tokens=1400,
+            reasoning_effort="none",
         ).strip()
         if not extracted:
             raise RuntimeError(
@@ -204,6 +205,7 @@ def interpret(
         ],
         temperature=0.0,
         max_tokens=2200,
+        reasoning_effort="none",
     ).strip()
     if not content:
         raise RuntimeError("Chato produced an empty corpus summary.")
