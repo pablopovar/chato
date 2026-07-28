@@ -96,12 +96,16 @@ def save_review_summary(
     if not content:
         raise HTTPException(400, "Chato's corpus summary cannot be empty.")
 
+    original = summary_path.read_text(encoding="utf-8", errors="replace")
     temporary = summary_path.with_name(f".{summary_path.name}.tmp")
     temporary.write_text(content.rstrip() + "\n", encoding="utf-8")
     temporary.replace(summary_path)
     try:
         update_setup_report_summary(report_path, content)
     except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        rollback = summary_path.with_name(f".{summary_path.name}.rollback")
+        rollback.write_text(original, encoding="utf-8")
+        rollback.replace(summary_path)
         raise HTTPException(500, str(exc)) from exc
 
     saved_at = utc_now()
