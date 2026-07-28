@@ -10,6 +10,7 @@ from fastapi.routing import APIRoute
 
 from app.services.chat_trace import (
     TraceRecorder,
+    current_trace,
     reset_current_trace,
     set_current_trace,
 )
@@ -55,6 +56,98 @@ def _response_payload(result: Any) -> Any:
     if hasattr(result, "dict"):
         return result.dict()
     return result
+
+
+def _sql(value: str) -> str:
+    return " ".join(value.split())
+
+
+def _install_database_tracing() -> None:
+    import app.api as api_module
+
+    if getattr(api_module, "_chat_database_tracing_installed", False):
+        return
+
+    original_execute = api_module.execute
+    original_fetch_one = api_module.fetch_one
+    original_fetch_all = api_module.fetch_all
+
+    def traced_execute(sql: str, params: tuple[Any, ...] = ()) -> None:
+        trace = current_trace()
+        if trace:
+            trace.event("database.execute.started", sql=_sql(sql), params=params)
+        try:
+            result = original_execute(sql, params)
+        except Exception as exc:
+            if trace:
+                trace.exception(
+                    "database.execute.failed",
+                    exc,
+                    sql=_sql(sql),
+                    params=params,
+                )
+            raise
+        if trace:
+            trace.event("database.execute.completed", sql=_sql(sql))
+        return result
+
+    def traced_fetch_one(
+        sql: str,
+        params: tuple[Any, ...] = (),
+    ) -> dict[str, Any] | None:
+        trace = current_trace()
+        if trace:
+            trace.event("database.fetch_one.started", sql=_sql(sql), params=params)
+        try:
+            result = original_fetch_one(sql, params)
+        except Exception as exc:
+            if trace:
+                trace.exception(
+                    "database.fetch_one.failed",
+                    exc,
+                    sql=_sql(sql),
+                    params=params,
+                )
+            raise
+        if trace:
+            trace.event(
+                "database.fetch_one.completed",
+                sql=_sql(sql),
+                result=result,
+            )
+        return result
+
+    def traced_fetch_all(
+        sql: str,
+        params: tuple[Any, ...] = (),
+    ) -> list[dict[str, Any]]:
+        trace = current_trace()
+        if trace:
+            trace.event("database.fetch_all.started", sql=_sql(sql), params=params)
+        try:
+            result = original_fetch_all(sql, params)
+        except Exception as exc:
+            if trace:
+                trace.exception(
+                    "database.fetch_all.failed",
+                    exc,
+                    sql=_sql(sql),
+                    params=params,
+                )
+            raise
+        if trace:
+            trace.event(
+                "database.fetch_all.completed",
+                sql=_sql(sql),
+                row_count=len(result),
+                result=result,
+            )
+        return result
+
+    api_module.execute = traced_execute
+    api_module.fetch_one = traced_fetch_one
+    api_module.fetch_all = traced_fetch_all
+    api_module._chat_database_tracing_installed = True
 
 
 def _wrapper(original: Callable[..., Any]) -> Callable[..., Any]:
@@ -123,6 +216,7 @@ def install_chat_tracing(app: FastAPI) -> None:
     if getattr(app.state, "chat_tracing_installed", False):
         return
 
+    _install_database_tracing()
     for route in app.routes:
         if not isinstance(route, APIRoute):
             continue
