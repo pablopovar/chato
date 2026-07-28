@@ -56,6 +56,12 @@ Provide up to ten corpus-grounded topics that would help visitors understand
 the organization and its offerings. These are content or conversation topics,
 not SEO-volume claims.
 
+## Suggested Keywords
+
+Provide up to twenty concise, corpus-grounded phrases people could reasonably
+use when searching for or asking about the organization. Do not invent search
+volume, competition, ranking, or intent metrics.
+
 ## Suggested Visitor Questions
 
 Provide up to ten realistic questions that Chato should be able to answer from
