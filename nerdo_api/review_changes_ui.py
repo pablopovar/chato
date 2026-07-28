@@ -29,7 +29,12 @@ def enhance_dashboard_page(page: str) -> str:
     if 'id="reviewChanges"' in page:
         return page
     button = '<button id="reviewActivate" class="primary" type="button" disabled>Activate reviewed domain</button>'
-    if button not in page or "</script></body></html>" not in page:
+    state_line = "$('#reviewSummary').disabled=!workspaceReady;$('#reviewSaveSummary').disabled=!workspaceReady;$('#reviewActivate').disabled=!activationReady;"
+    if (
+        button not in page
+        or state_line not in page
+        or "</script></body></html>" not in page
+    ):
         raise RuntimeError("Could not install the send-back review decision.")
     page = page.replace(
         button,
@@ -37,8 +42,8 @@ def enhance_dashboard_page(page: str) -> str:
         1,
     )
     page = page.replace(
-        "$('#reviewSummary').disabled=!ready;$('#reviewSaveSummary').disabled=!ready;$('#reviewActivate').disabled=!ready;",
-        "$('#reviewSummary').disabled=!ready;$('#reviewSaveSummary').disabled=!ready;$('#reviewChanges').disabled=!ready;$('#reviewActivate').disabled=!ready;",
+        state_line,
+        "$('#reviewSummary').disabled=!workspaceReady;$('#reviewSaveSummary').disabled=!workspaceReady;$('#reviewChanges').disabled=!workspaceReady;$('#reviewActivate').disabled=!activationReady;",
         1,
     )
     page = page.replace(
@@ -54,12 +59,12 @@ def install_review_changes_dashboard(app: FastAPI, settings: Settings) -> None:
         return
 
     def send_back(intake_id: str) -> dict[str, Any]:
-        review = _core_json(
+        prepared = _core_json(
             settings,
-            "GET",
-            f"/admin/intakes/{intake_id}/review",
+            "POST",
+            f"/admin/intakes/{intake_id}/review-workspace",
         )
-        intake = review.get("intake") or {}
+        intake = prepared.get("intake") or {}
         domain = str(intake.get("domain") or "").strip()
         if not domain:
             raise HTTPException(409, "The intake has no domain.")

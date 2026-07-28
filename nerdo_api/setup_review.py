@@ -66,7 +66,7 @@ function reviewProcessingOnly(text){const marker='## Chato — Corpus Summary';c
 function reviewEsc(value){return esc(value)}
 async function loadReview(){
   if(!reviewIntakeId)return;
-  const target=$('#reviewNotice');target.textContent='Loading the complete review workspace…';
+  const target=$('#reviewNotice');target.textContent='Loading Nerdo report and Chato corpus summary…';
   const r=await fetch(`/dashboard/api/reviews/${encodeURIComponent(reviewIntakeId)}`,{credentials:'same-origin'});
   const p=await r.json();if(!r.ok)throw Error(p.detail||`HTTP ${r.status}`);
   const i=p.intake||{};reviewLoaded=true;
@@ -75,9 +75,16 @@ async function loadReview(){
   $('#reviewReport').textContent=reviewProcessingOnly(p.report)||'Nerdo did not produce a processing report.';
   $('#reviewSummary').value=p.summary||'';
   $('#reviewDownload').href=`/dashboard/api/reviews/${encodeURIComponent(reviewIntakeId)}/download`;
-  const ready=i.status==='awaiting_review'&&Boolean(p.report)&&Boolean(p.summary)&&Boolean(p.workspace?.ready);
-  $('#reviewSummary').disabled=!ready;$('#reviewSaveSummary').disabled=!ready;$('#reviewActivate').disabled=!ready;
-  target.textContent=ready?'Review every tab. Save changes in each area before activation.':`Review workspace is incomplete. Current status: ${i.status||'unknown'}.`;
+  const workspaceReady=i.status==='awaiting_review'&&Boolean(p.report)&&Boolean(p.workspace?.ready);
+  const activationReady=workspaceReady&&Boolean(p.summary);
+  $('#reviewSummary').disabled=!workspaceReady;$('#reviewSaveSummary').disabled=!workspaceReady;$('#reviewActivate').disabled=!activationReady;
+  if(p.summary_error){
+    target.textContent=`The workspace is open, but Chato's summary generation failed: ${p.summary_error} You may write and save the summary manually, or refresh this page to retry generation.`;
+  }else if(activationReady){
+    target.textContent='Review every tab. Save changes in each area before activation.';
+  }else{
+    target.textContent=`The workspace is open, but Chato's summary is not complete. Current status: ${i.status||'unknown'}.`;
+  }
 }
 async function loadCrawl(){
   if(!reviewIntakeId||crawlLoaded)return;crawlLoaded=true;$('#crawlNotice').textContent='Loading crawl records…';
@@ -288,8 +295,12 @@ def install_setup_review(app: FastAPI, settings: Settings) -> None:
         }
 
     def review_entry(intake_id: str) -> RedirectResponse:
-        review = review_data(intake_id)
-        intake = review.get("intake") or {}
+        prepared = _core_json(
+            settings,
+            "POST",
+            f"/admin/intakes/{intake_id}/review-workspace",
+        )
+        intake = prepared.get("intake") or {}
         domain = str(intake.get("domain") or "").strip()
         if not domain:
             raise HTTPException(409, "The intake has no domain.")

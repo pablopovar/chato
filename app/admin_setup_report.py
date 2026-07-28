@@ -11,6 +11,7 @@ from app.db import execute, utc_now
 from app.schemas import DraftUpdate
 from app.services.review_workspace import (
     ensure_review_workspace,
+    prepare_review_workspace,
     sync_review_summary,
 )
 from app.services.setup_report import update_setup_report_summary
@@ -19,13 +20,34 @@ from app.services.setup_report import update_setup_report_summary
 router = APIRouter()
 
 
-def _workspace(intake_id: str) -> dict[str, Any]:
+def _workspace(intake_id: str, *, prepare_only: bool = False) -> dict[str, Any]:
     try:
-        return ensure_review_workspace(intake_id)
+        return (
+            prepare_review_workspace(intake_id)
+            if prepare_only
+            else ensure_review_workspace(intake_id)
+        )
     except RuntimeError as exc:
         message = str(exc)
-        status = 404 if message in {"Intake not found."} else 409
+        status = 404 if message == "Intake not found." else 409
         raise HTTPException(status, message) from exc
+
+
+@router.post(
+    "/admin/intakes/{intake_id}/review-workspace",
+    dependencies=[Depends(require_admin)],
+)
+def prepare_workspace(intake_id: str) -> dict[str, Any]:
+    workspace = _workspace(intake_id, prepare_only=True)
+    intake = workspace["intake"]
+    return {
+        "intake": intake,
+        "workspace": {
+            "ready": True,
+            "domain_directory": str(workspace["workspace"]),
+            "summary_ready": bool(workspace.get("summary_ready")),
+        },
+    }
 
 
 @router.get(
@@ -59,12 +81,15 @@ def review(intake_id: str) -> dict[str, Any]:
     report_path = Path(workspace["report_path"])
     crawl = workspace.get("crawl") or {}
     dataset = workspace.get("dataset") or {}
+    summary = (
+        summary_path.read_text(encoding="utf-8", errors="replace")
+        if summary_path.is_file()
+        else ""
+    )
     return {
         "intake": intake,
-        "summary": summary_path.read_text(
-            encoding="utf-8",
-            errors="replace",
-        ),
+        "summary": summary,
+        "summary_error": workspace.get("summary_error"),
         "report": report_path.read_text(
             encoding="utf-8",
             errors="replace",
@@ -72,6 +97,7 @@ def review(intake_id: str) -> dict[str, Any]:
         "workspace": {
             "ready": True,
             "domain_directory": str(workspace["workspace"]),
+            "summary_ready": bool(workspace.get("summary_ready")),
             "document_count": int(dataset.get("document_count") or intake.get("document_count") or 0),
             "duplicate_count": int(dataset.get("duplicate_count") or intake.get("duplicate_count") or 0),
             "chunk_count": int(dataset.get("chunk_count") or intake.get("chunk_count") or 0),
@@ -89,7 +115,7 @@ def save_review_summary(
     intake_id: str,
     body: DraftUpdate,
 ) -> dict[str, str]:
-    workspace = _workspace(intake_id)
+    workspace = _workspace(intake_id, prepare_only=True)
     intake = workspace["intake"]
     if intake.get("status") != "awaiting_review":
         raise HTTPException(
@@ -104,11 +130,20 @@ def save_review_summary(
     summary_path = Path(workspace["summary_path"])
     report_path = Path(workspace["report_path"])
     knowledge_path = Path(workspace["workspace"]) / "knowledge.md"
-    original_summary = summary_path.read_text(encoding="utf-8", errors="replace")
+    original_summary = (
+        summary_path.read_text(encoding="utf-8", errors="replace")
+        if summary_path.is_file()
+        else ""
+    )
     original_report = report_path.read_text(encoding="utf-8", errors="replace")
-    original_knowledge = knowledge_path.read_text(encoding="utf-8", errors="replace")
+    original_knowledge = (
+        knowledge_path.read_text(encoding="utf-8", errors="replace")
+        if knowledge_path.is_file()
+        else ""
+    )
 
     try:
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = summary_path.with_name(f".{summary_path.name}.tmp")
         temporary.write_text(content.rstrip() + "\n", encoding="utf-8")
         temporary.replace(summary_path)
@@ -120,14 +155,17 @@ def save_review_summary(
             (report_path, original_report),
             (knowledge_path, original_knowledge),
         ):
-            rollback = path.with_name(f".{path.name}.rollback")
-            rollback.write_text(original, encoding="utf-8")
-            rollback.replace(path)
+            if original:
+                rollback = path.with_name(f".{path.name}.rollback")
+                rollback.write_text(original, encoding="utf-8")
+                rollback.replace(path)
+            else:
+                path.unlink(missing_ok=True)
         raise HTTPException(500, str(exc)) from exc
 
     saved_at = utc_now()
     execute(
-        "UPDATE intakes SET updated_at = ? WHERE id = ?",
-        (saved_at, intake_id),
+        "UPDATE intakes SET draft_path = ?, updated_at = ? WHERE id = ?",
+        (str(summary_path), saved_at, intake_id),
     )
     return {"status": "saved", "saved_at": saved_at}
