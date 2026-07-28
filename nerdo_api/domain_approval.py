@@ -15,6 +15,9 @@ from .domain_operations import (
 from .storage import Storage
 
 
+START_PATH = "/v1/admin/domains/{domain}/start"
+
+
 def install_domain_approval(app: FastAPI, settings: Settings, storage: Storage) -> None:
     if getattr(app.state, "domain_approval_installed", False):
         return
@@ -70,11 +73,33 @@ def install_domain_approval(app: FastAPI, settings: Settings, storage: Storage) 
             "status": created.get("status", "queued"),
         }
 
+    dependencies = [Depends(operator_auth)]
+    app.add_api_route(
+        START_PATH,
+        approve_domain,
+        methods=["POST"],
+        dependencies=dependencies,
+        status_code=202,
+    )
     app.add_api_route(
         "/v1/admin/domains/{domain}/approve",
         approve_domain,
         methods=["POST"],
-        dependencies=[Depends(operator_auth)],
+        dependencies=dependencies,
         status_code=202,
+        include_in_schema=False,
     )
     app.state.domain_approval_installed = True
+
+
+def remove_duplicate_start_routes(app: FastAPI) -> None:
+    seen = False
+    retained = []
+    for route in app.router.routes:
+        methods = getattr(route, "methods", set()) or set()
+        if getattr(route, "path", None) == START_PATH and "POST" in methods:
+            if seen:
+                continue
+            seen = True
+        retained.append(route)
+    app.router.routes = retained
