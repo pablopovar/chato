@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import httpx
 
 from app.config import settings
+from app.services.chat_trace import current_trace
 
 
 def chat_completion(
@@ -22,6 +24,7 @@ def chat_completion(
         settings.model_api_key if api_key is None else api_key
     )
     selected_model = model or settings.model_name
+    selected_timeout = timeout_seconds or settings.model_timeout_seconds
 
     headers = {"Content-Type": "application/json"}
     if selected_api_key:
@@ -34,26 +37,61 @@ def chat_completion(
         "max_tokens": max_tokens or settings.model_max_tokens,
         "stream": False,
     }
-
-    with httpx.Client(
-        timeout=timeout_seconds or settings.model_timeout_seconds,
-    ) as client:
-        response = client.post(
-            f"{selected_base_url}/chat/completions",
-            headers=headers,
-            json=payload,
+    endpoint = f"{selected_base_url}/chat/completions"
+    trace = current_trace()
+    if trace:
+        trace.event(
+            "model.request",
+            endpoint=endpoint,
+            api_key_configured=bool(selected_api_key),
+            timeout_seconds=selected_timeout,
+            payload=payload,
         )
+
+    started = time.perf_counter()
+    try:
+        with httpx.Client(timeout=selected_timeout) as client:
+            response = client.post(
+                endpoint,
+                headers=headers,
+                json=payload,
+            )
+
+        raw_text = response.text
+        try:
+            data: Any = response.json()
+        except ValueError:
+            data = None
+
+        if trace:
+            trace.event(
+                "model.response",
+                status_code=response.status_code,
+                elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+                headers=dict(response.headers),
+                body=data if data is not None else raw_text,
+            )
+
         response.raise_for_status()
-        data = response.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("Model response was not a JSON object.")
 
-    choices = data.get("choices") or []
-    if not choices:
-        raise RuntimeError("Model response did not contain choices.")
+        choices = data.get("choices") or []
+        if not choices:
+            raise RuntimeError("Model response did not contain choices.")
 
-    answer = str(
-        choices[0].get("message", {}).get("content", "")
-    ).strip()
-    if not answer:
-        raise RuntimeError("Model returned an empty response.")
-
-    return answer
+        answer = str(
+            choices[0].get("message", {}).get("content", "")
+        ).strip()
+        if not answer:
+            raise RuntimeError("Model returned an empty response.")
+        return answer
+    except Exception as exc:
+        if trace:
+            trace.exception(
+                "model.failure",
+                exc,
+                endpoint=endpoint,
+                elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+            )
+        raise
