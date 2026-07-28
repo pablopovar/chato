@@ -54,12 +54,28 @@ Chato may infer likely audiences or distinctive characteristics only when the in
 
 Chato's corpus summary is required. A model failure, empty summary, or incomplete corpus-read stage fails the intake. Nerdo must not replace it with a source inventory and allow that inventory to become `knowledge.md`.
 
+## Review workflow
+
+The dashboard lists active domains and incomplete intakes together. An intake with status `awaiting_review` opens a dedicated review page:
+
+```text
+/dashboard/reviews/<intake-id>
+```
+
+The review page separates the decision into three operations:
+
+1. Read Nerdo's immutable processing report and coverage limitations.
+2. Review and edit Chato's corpus summary. Saving updates both `chato-summary.md` and the embedded Chato section in `setup-report.md` through Core review APIs.
+3. Activate the domain only after the processing result and Chato summary are acceptable.
+
+Activation from the review page calls the same authenticated domain-operations API used by email and other channels. The dashboard does not implement a separate activation path.
+
 ## Delivery
 
 When the intake reaches `awaiting_review`:
 
-- configured reviewers receive the report and the activation command;
-- the website owner receives the report and an invitation to reply with corrections, missing information, or questions;
+- configured reviewers receive the full report, a direct review-page link, and the email activation command;
+- the website owner receives the full report and an invitation to reply with corrections, missing information, or questions;
 - delivery is recorded per recipient and failed sends retry under the existing review-ready notification policy.
 
-The completed Markdown report is also available through the authenticated Core setup-report endpoint.
+The completed Markdown report is also available through the authenticated Core setup-report endpoint and through the dashboard's Download full setup report action.
