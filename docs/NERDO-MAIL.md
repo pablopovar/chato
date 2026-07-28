@@ -24,7 +24,7 @@ An email address may manage any number of domains. The sender authorizes the ope
 ## Commands
 
 ```text
-add domain example.com|owner@example.com
+add domain example.com owner@example.com
 list domains
 status example.com
 start example.com
@@ -41,7 +41,7 @@ confirm remove example.com
 
 The command may be the first non-empty line of the message or the value of a `Command:` line.
 
-`add domain example.com|owner@example.com` is restricted to addresses listed in `NERDO_ADMIN_EMAILS`. It creates and immediately starts a Core intake for `https://example.com`, assigning it to the supplied account email.
+`add domain example.com owner@example.com` is restricted to addresses listed in `NERDO_ADMIN_EMAILS`. It creates and immediately starts a Core intake for `https://example.com`, assigning it to the supplied account email. The command uses spaces only; bars and other separators are not accepted.
 
 `add documents example.com` accepts UTF-8 `.md` and `.markdown` attachments and stores them under the deployed domain's `mail-imports/` directory. Retrieval scans Markdown recursively, so the additions become available immediately.
 
