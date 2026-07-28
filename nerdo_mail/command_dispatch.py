@@ -104,7 +104,7 @@ class MailboxDomainCommands(DomainCommands):
     def start(self, domain: str) -> str:
         created = self._gateway_request(
             "POST",
-            f"/v1/admin/domains/{domain}/start",
+            f"/v1/admin/domains/{domain}/approve",
         )
         return f"Approved and started {domain}. Intake: {created['intake_id']}."
 
@@ -249,4 +249,13 @@ class MailboxDomainCommands(DomainCommands):
                 return CommandResult(error or "A domain is required.")
             return CommandResult(self.reset(domain, False), domain)
 
-        return super().execute(parsed)
+        result = super().execute(parsed)
+        if result.body.startswith("Unknown command."):
+            return CommandResult(
+                "Unknown command. Supported commands: add domain, list domains, "
+                "status, start, activate, retry, reset, enable, disable, add documents, "
+                "list documents, attach documents, remove.",
+                result.domain,
+                result.attachments,
+            )
+        return result
