@@ -9,6 +9,8 @@ from app.services.indexer import IndexResult
 
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+CHATO_SECTION = "## Chato — Corpus Summary"
+REVIEW_SECTION = "## Review Status"
 
 
 def _bytes_label(value: int) -> str:
@@ -33,6 +35,35 @@ def _embedded_summary(summary: str) -> str:
         embedded_level = 3 if level <= 2 else min(6, level + 1)
         lines.append(f"{'#' * embedded_level} {match.group(2)}")
     return "\n".join(lines).strip()
+
+
+def update_setup_report_summary(
+    report_path: Path,
+    summary: str,
+) -> Path:
+    clean_summary = summary.strip()
+    if not clean_summary:
+        raise ValueError("Chato's corpus summary cannot be empty.")
+    if not report_path.is_file():
+        raise FileNotFoundError("The website setup report file is missing.")
+
+    report = report_path.read_text(encoding="utf-8", errors="replace")
+    start = report.find(CHATO_SECTION)
+    end = report.find(REVIEW_SECTION)
+    if start < 0 or end < 0 or end <= start:
+        raise RuntimeError("The website setup report has an invalid section structure.")
+
+    replacement = (
+        CHATO_SECTION
+        + "\n\n"
+        + _embedded_summary(clean_summary)
+        + "\n\n"
+    )
+    updated = report[:start] + replacement + report[end:]
+    temporary = report_path.with_name(f".{report_path.name}.tmp")
+    temporary.write_text(updated.rstrip() + "\n", encoding="utf-8")
+    temporary.replace(report_path)
+    return report_path
 
 
 def build_setup_report(
@@ -96,11 +127,11 @@ def build_setup_report(
         "- Skipped, duplicate, discarded, inaccessible, no-index, or out-of-scope pages may contain information absent from the prepared corpus.",
         "- Chato's summary below is grounded only in the prepared canonical corpus.",
         "",
-        "## Chato — Corpus Summary",
+        CHATO_SECTION,
         "",
         _embedded_summary(summary),
         "",
-        "## Review Status",
+        REVIEW_SECTION,
         "",
         "The website corpus and Chato summary are ready for review. Correct missing or inaccurate information before relying on the assistant publicly.",
         "",
