@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse, Response
 
 from app.admin_history import router as admin_history_router
 from app.api import router
+from app.chat_trace_install import install_chat_tracing
 from app.config import settings
 from app.db import init_db
 from app.services.registry import all_allowed_origins
@@ -69,3 +70,4 @@ async def cors(
 
 app.include_router(router)
 app.include_router(admin_history_router)
+install_chat_tracing(app)
