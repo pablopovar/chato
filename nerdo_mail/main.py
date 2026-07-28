@@ -5,11 +5,12 @@ import os
 import time
 from dataclasses import replace
 
+from .command_dispatch import MailboxDomainCommands
 from .command_text import normalize_command_text
 from .config import settings
 from .email_chat import answer_email_question
 from .maildir import LocalMaildirSource, MailLedger
-from .processor import DomainCommands, parse_command, send_reply
+from .processor import parse_command, send_reply
 from .review_ready import ReviewReadyNotifier
 
 logging.basicConfig(
@@ -26,7 +27,7 @@ def run_once() -> int:
         ledger,
         stable_seconds=settings.stable_seconds,
     )
-    commands = DomainCommands(settings)
+    commands = MailboxDomainCommands(settings)
     notifier = ReviewReadyNotifier(settings)
     processed = 0
     own_address = os.getenv("NERDO_SMTP_FROM_EMAIL", "").strip().casefold()
