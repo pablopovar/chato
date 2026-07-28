@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from app.services.cleaner import CleanResult
 from app.services.crawler import CrawlResult
 from app.services.indexer import IndexResult
+
+
+HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 
 
 def _bytes_label(value: int) -> str:
@@ -16,6 +20,19 @@ def _bytes_label(value: int) -> str:
             return f"{size:,.1f} {unit}"
         size /= 1024
     return f"{int(value):,} bytes"
+
+
+def _embedded_summary(summary: str) -> str:
+    lines: list[str] = []
+    for line in summary.splitlines():
+        match = HEADING_RE.match(line)
+        if not match:
+            lines.append(line)
+            continue
+        level = len(match.group(1))
+        embedded_level = 3 if level <= 2 else min(6, level + 1)
+        lines.append(f"{'#' * embedded_level} {match.group(2)}")
+    return "\n".join(lines).strip()
 
 
 def build_setup_report(
@@ -48,9 +65,9 @@ def build_setup_report(
         f"- Domain: `{domain}`",
         f"- Submitted URL: {website_url}",
         f"- Owner email: {owner_email}",
-        f"- Processing started: {started_at}",
+        f"- Intake created: {started_at}",
         f"- Processing completed: {completed_at}",
-        "- Result: processing completed; corpus prepared for review",
+        "- Result: corpus prepared for review",
         "",
         "### Retrieval and crawling",
         "",
@@ -59,7 +76,6 @@ def build_setup_report(
         f"- Pages skipped: {crawl_result.skipped_pages:,}",
         f"- Data retrieved: {_bytes_label(crawl_result.total_bytes)}",
         f"- Crawl stop reason: `{crawl_result.stop_reason}`",
-        f"- Crawl manifest: `{crawl_result.manifest_path}`",
         "",
         "### Cleaning and standardization",
         "",
@@ -67,15 +83,12 @@ def build_setup_report(
         f"- Canonical Markdown documents: {len(clean_result.canonical_documents):,}",
         f"- Duplicate documents removed: {clean_result.duplicate_count:,}",
         f"- Documents discarded as unusable: {clean_result.discarded_count:,}",
-        f"- Cleaning report: `{clean_result.report_path}`",
-        f"- Duplicate report: `{clean_result.duplicates_path}`",
         "",
-        "### Indexing",
+        "### Search preparation",
         "",
         f"- Documents indexed: {index_result.document_count:,}",
-        f"- Search chunks created: {index_result.chunk_count:,}",
-        f"- SQLite FTS5 enabled: {'yes' if index_result.fts5_enabled else 'no'}",
-        f"- Corpus manifest: `{index_result.manifest_path}`",
+        f"- Search passages created: {index_result.chunk_count:,}",
+        f"- Search index ready: {'yes' if index_result.fts5_enabled else 'filesystem index only'}",
         "",
         "### Processing limits",
         "",
@@ -85,11 +98,11 @@ def build_setup_report(
         "",
         "## Chato — Corpus Summary",
         "",
-        summary,
+        _embedded_summary(summary),
         "",
         "## Review Status",
         "",
-        "The website corpus and Chato summary are ready for human review. Correct missing or inaccurate information before activation.",
+        "The website corpus and Chato summary are ready for review. Correct missing or inaccurate information before relying on the assistant publicly.",
         "",
     ]
 
