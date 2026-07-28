@@ -84,7 +84,7 @@ class ReviewReadyNotifier:
                     review_key=review_key,
                     intake_id=intake_id,
                     domain=domain,
-                    owner_email=str(intake.get("email", "")).strip(),
+                    owner_email=str(intake.get("email", "")).strip().casefold(),
                     document_count=int(intake.get("document_count") or 0),
                     updated_at=str(intake.get("updated_at", "")).strip(),
                 )
@@ -175,7 +175,23 @@ class ReviewReadyNotifier:
                 (status, error, review_key, recipient),
             )
 
-    def _body(self, review: ReviewReadyNotification, report: str) -> str:
+    def _body(
+        self,
+        review: ReviewReadyNotification,
+        report: str,
+        *,
+        reviewer: bool,
+    ) -> str:
+        next_step = (
+            "Activate it by replying to Nerdo with:\n"
+            f"activate {review.domain}\n\n"
+            f"Dashboard:\n{self.dashboard_url}\n"
+            if reviewer
+            else (
+                "Review the report and reply to this email with corrections, "
+                "missing information, or questions. Activation remains under review.\n"
+            )
+        )
         return (
             "Nerdo finished retrieving and processing the website.\n\n"
             f"Domain: {review.domain}\n"
@@ -189,30 +205,42 @@ class ReviewReadyNotifier:
             "---\n\n"
             f"{report}\n\n"
             "---\n\n"
-            "Activate it by replying to Nerdo with:\n"
-            f"activate {review.domain}\n\n"
-            f"Dashboard:\n{self.dashboard_url}\n"
+            + next_step
         )
 
     def notify_pending(self) -> int:
-        recipients = sorted(self.settings.admin_emails)
-        if not recipients:
-            LOGGER.warning(
-                "NERDO_ADMIN_EMAILS is empty; review-ready notification skipped."
-            )
-            return 0
-
         sent = 0
         for review in self._pending_reviews():
-            for recipient in recipients:
+            recipients = {
+                address.casefold()
+                for address in self.settings.admin_emails
+                if address.strip()
+            }
+            if review.owner_email:
+                recipients.add(review.owner_email)
+            if not recipients:
+                LOGGER.warning(
+                    "No owner or reviewer email is available for %s; setup report skipped.",
+                    review.domain,
+                )
+                continue
+
+            report: str | None = None
+            for recipient in sorted(recipients):
                 if not self._claim(review, recipient):
                     continue
                 try:
-                    report = self._setup_report(review.intake_id)
+                    if report is None:
+                        report = self._setup_report(review.intake_id)
+                    reviewer = recipient in self.settings.admin_emails
                     send_email(
                         to_email=recipient,
                         subject=f"Nerdo setup report: {review.domain}",
-                        body=self._body(review, report),
+                        body=self._body(
+                            review,
+                            report,
+                            reviewer=reviewer,
+                        ),
                     )
                     self._record(review.review_key, recipient, "sent")
                     sent += 1
