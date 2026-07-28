@@ -13,6 +13,7 @@ from .document_foundry_ui import enhance_dashboard_page as enhance_foundry_page
 from .domain_approval import install_domain_approval, remove_duplicate_start_routes
 from .domain_operations import install_domain_operations
 from .main import app
+from .review_changes import install_review_changes
 from .setup_review import (
     enhance_domain_page as enhance_setup_review_domain,
     enhance_root_page as enhance_setup_review_root,
@@ -43,6 +44,9 @@ if not getattr(app.state, "domain_approval_installed", False):
 
 if not getattr(app.state, "domain_operations_installed", False):
     install_domain_operations(app, app.state.settings, app.state.storage)
+
+if not getattr(app.state, "review_changes_installed", False):
+    install_review_changes(app, app.state.settings, app.state.storage)
 
 remove_duplicate_start_routes(app)
 
