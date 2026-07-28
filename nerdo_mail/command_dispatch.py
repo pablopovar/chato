@@ -148,13 +148,7 @@ class MailboxDomainCommands(DomainCommands):
         archived = ", ".join(result.get("archived_paths", [])) or "no deployed directory"
         return f"Removed {domain} from service. Archived: {archived}."
 
-    def reset(self, domain: str, confirmed: bool) -> str:
-        if not confirmed:
-            return (
-                "Reset archives the deployed domain, clears its intake and conversation state, "
-                "and starts a new crawl. Reply with: "
-                f"`Command: confirm reset {domain}`."
-            )
+    def reset(self, domain: str) -> str:
         result = self._gateway_request(
             "POST",
             f"/v1/admin/domains/{domain}/reset",
@@ -245,14 +239,10 @@ class MailboxDomainCommands(DomainCommands):
 
         command_domain = self._command_domain(normalized)
         domain, error = self._resolve_domain(parsed, command_domain)
-        if normalized.startswith("confirm reset"):
+        if normalized.startswith("reset") or normalized.startswith("confirm reset"):
             if error or not domain:
                 return CommandResult(error or "A domain is required.")
-            return CommandResult(self.reset(domain, True), domain)
-        if normalized.startswith("reset"):
-            if error or not domain:
-                return CommandResult(error or "A domain is required.")
-            return CommandResult(self.reset(domain, False), domain)
+            return CommandResult(self.reset(domain), domain)
 
         result = super().execute(parsed)
         if result.body.startswith("Unknown command."):
