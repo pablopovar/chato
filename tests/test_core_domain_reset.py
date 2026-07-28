@@ -13,12 +13,10 @@ def test_core_reset_removes_domain_state_and_archives_files(
 ) -> None:
     data_dir = tmp_path / "data"
     database = data_dir / "nerdo.sqlite3"
+    test_settings = replace(core_settings, data_dir=data_dir)
     monkeypatch.setattr(db, "DB_PATH", database)
-    monkeypatch.setattr(
-        admin_domains,
-        "settings",
-        replace(core_settings, data_dir=data_dir),
-    )
+    monkeypatch.setattr(db, "settings", test_settings)
+    monkeypatch.setattr(admin_domains, "settings", test_settings)
     trace_root = tmp_path / "traces"
     monkeypatch.setenv("NERDO_CHAT_TRACE_DIR", str(trace_root))
 
