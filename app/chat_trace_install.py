@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import secrets
 from typing import Any, Callable
 from uuid import uuid4
@@ -62,7 +63,13 @@ def _wrapper(original: Callable[..., Any]) -> Callable[..., Any]:
             config = load_bot(str(body.domain))
         except Exception:
             config = None
-        if config is None or not config.debug:
+        supplied_key = str(getattr(body, "key", "") or "")
+        if (
+            config is None
+            or not config.enabled
+            or not config.debug
+            or not hmac.compare_digest(supplied_key, config.key)
+        ):
             return original(body=body, request=request, response=response)
 
         supplied_session_id = bool(getattr(body, "session_id", None))
