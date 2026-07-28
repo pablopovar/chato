@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import re
+import time
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.services.chat_trace import current_trace
 from app.services.registry import BotConfig
 
 
@@ -97,24 +99,63 @@ def _chunks(text: str, size: int = 1800) -> list[str]:
     return chunks
 
 
+def _hit_record(hit: SearchHit, rank: int | None = None) -> dict[str, object]:
+    record: dict[str, object] = {
+        "title": hit.title,
+        "path": hit.path,
+        "score": hit.score,
+        "text": hit.text,
+    }
+    if rank is not None:
+        record["rank"] = rank
+    return record
+
+
 def search(
     config: BotConfig,
     question: str,
 ) -> list[SearchHit]:
+    trace = current_trace()
+    started = time.perf_counter()
     query_tokens = set(_tokens(question))
+    if trace:
+        trace.event(
+            "retrieval.started",
+            question=question,
+            normalized_question=_normalize(question),
+            query_tokens=sorted(query_tokens),
+            corpus_directory=str(config.directory),
+            maximum_results=config.max_results,
+        )
     if not query_tokens:
+        if trace:
+            trace.event(
+                "retrieval.completed",
+                document_count=0,
+                chunk_count=0,
+                candidate_count=0,
+                selected_count=0,
+                elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+                reason="no-query-tokens",
+                candidates=[],
+                selected=[],
+            )
         return []
 
     normalized_question = _normalize(question)
     hits: list[SearchHit] = []
+    document_count = 0
+    chunk_count = 0
 
     for path in sorted(config.directory.rglob("*.md")):
+        document_count += 1
         markdown = path.read_text(encoding="utf-8", errors="replace")
         title = _title(markdown, path)
         normalized_title = _normalize(title)
         relative_path = str(path.relative_to(config.directory))
 
         for chunk in _chunks(_plain(markdown)):
+            chunk_count += 1
             normalized_chunk = _normalize(chunk)
             matched = 0
             score = 0.0
@@ -146,4 +187,22 @@ def search(
                 )
 
     hits.sort(key=lambda item: (-item.score, item.path))
-    return hits[: config.max_results]
+    selected = hits[: config.max_results]
+    if trace:
+        trace.event(
+            "retrieval.completed",
+            document_count=document_count,
+            chunk_count=chunk_count,
+            candidate_count=len(hits),
+            selected_count=len(selected),
+            elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+            candidates=[
+                _hit_record(hit, index)
+                for index, hit in enumerate(hits, start=1)
+            ],
+            selected=[
+                _hit_record(hit, index)
+                for index, hit in enumerate(selected, start=1)
+            ],
+        )
+    return selected
