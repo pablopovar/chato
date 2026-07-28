@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import settings
-from app.db import execute, fetch_one, utc_now
+from app.db import execute, utc_now
 from app.services.email_transport import send_email
 from app.services.review_workspace import ensure_review_workspace
 
@@ -33,8 +33,21 @@ def activate_reviewed_intake(
         raise RuntimeError(
             f"The intake cannot be activated while status is {intake.get('status')}."
         )
+    if not workspace.get("summary_ready"):
+        detail = str(workspace.get("summary_error") or "").strip()
+        raise RuntimeError(
+            "Chato's corpus summary must be completed before activation."
+            + (f" Last generation error: {detail}" if detail else "")
+        )
 
     staging = Path(workspace["workspace"])
+    knowledge_path = staging / "knowledge.md"
+    if not knowledge_path.is_file() or not knowledge_path.read_text(
+        encoding="utf-8",
+        errors="replace",
+    ).strip():
+        raise RuntimeError("The reviewed knowledge.md is missing or empty.")
+
     config_path = staging / "nerdo.json"
     if not config_path.is_file():
         raise RuntimeError("The reviewed domain configuration is missing.")
