@@ -91,6 +91,8 @@ services:
     environment:
       NERDO_CORE_BASE_URL: http://nerdo:3401
       NERDO_CORE_ADMIN_TOKEN: "${NERDO_ADMIN_TOKEN:?NERDO_ADMIN_TOKEN is required}"
+      NERDO_GATEWAY_BASE_URL: http://nerdo-api:3400
+      NERDO_OPERATOR_TOKEN: "${NERDO_OPERATOR_TOKEN:?NERDO_OPERATOR_TOKEN is required}"
       NERDO_DATABASE_PATH: /app/data/nerdo-api.sqlite3
       NERDO_MAIL_STATE_PATH: /app/data/nerdo-mail.sqlite3
       NERDO_USERS_DIR: /app/users

@@ -16,6 +16,7 @@ class Settings:
     core_admin_token: str = os.getenv("NERDO_CORE_ADMIN_TOKEN", "")
     operator_token: str = os.getenv("NERDO_OPERATOR_TOKEN", "change-me")
     database_path: Path = Path(os.getenv("NERDO_DATABASE_PATH", "./data/chato-nerdo.sqlite3"))
+    users_dir: Path = Path(os.getenv("NERDO_USERS_DIR", "./users"))
     request_timeout_seconds: float = _float("NERDO_REQUEST_TIMEOUT_SECONDS", 30.0)
     verify_timeout_seconds: float = _float("NERDO_VERIFY_TIMEOUT_SECONDS", 12.0)
     public_base_url: str = os.getenv("NERDO_PUBLIC_BASE_URL", "https://chato.povarchik.com")

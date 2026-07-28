@@ -10,6 +10,8 @@ from .chat_trace_ui import (
 )
 from .document_foundry import install_document_foundry
 from .document_foundry_ui import enhance_dashboard_page as enhance_foundry_page
+from .domain_approval import install_domain_approval, remove_duplicate_start_routes
+from .domain_operations import install_domain_operations
 from .main import app
 from .share_background import (
     enhance_dashboard_page as enhance_share_background_page,
@@ -28,6 +30,14 @@ share_sessions.SESSION_PAGE = enhance_session_page(share_sessions.SESSION_PAGE)
 
 from .share_namespace import install_share_namespace, public_app_base_url
 
+
+if not getattr(app.state, "domain_approval_installed", False):
+    install_domain_approval(app, app.state.settings, app.state.storage)
+
+if not getattr(app.state, "domain_operations_installed", False):
+    install_domain_operations(app, app.state.settings, app.state.storage)
+
+remove_duplicate_start_routes(app)
 
 if not getattr(app.state, "dashboard_domain_installed", False):
     dashboard_settings = replace(

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
+from app.admin_domains import router as admin_domains_router
 from app.admin_history import router as admin_history_router
 from app.api import router
 from app.chat_trace_install import install_chat_tracing
@@ -70,4 +71,5 @@ async def cors(
 
 app.include_router(router)
 app.include_router(admin_history_router)
+app.include_router(admin_domains_router)
 install_chat_tracing(app)
