@@ -2,7 +2,7 @@ x-nerdo-runtime: &nerdo-runtime
   build:
     context: .
   image: chato-nerdo:local
-  restart: unless-stopped
+#  restart: unless-stopped
   env_file:
     - .env
   extra_hosts:
