@@ -39,7 +39,6 @@ REMOVE_TAGS = {
     "iframe",
     "object",
     "embed",
-    "form",
     "input",
     "textarea",
     "select",

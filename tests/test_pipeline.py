@@ -4,6 +4,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
@@ -15,7 +16,8 @@ os.environ["NERDO_DEMOS_PATH"] = str(TEST_ROOT / "demos.toml")
 os.environ["NERDO_CRAWL_MIN_DELAY_SECONDS"] = "0"
 os.environ["NERDO_CRAWL_MAX_DELAY_SECONDS"] = "0"
 
-from app.config import settings  # noqa: E402
+from app.config import settings as app_settings  # noqa: E402
+from app import db  # noqa: E402
 from app.db import execute, fetch_all, fetch_one, init_db, utc_now  # noqa: E402
 from app.services.cleaner import clean_pages  # noqa: E402
 from app.services.crawler import (  # noqa: E402
@@ -29,6 +31,13 @@ from app.services.indexer import build_index  # noqa: E402
 
 class PipelineTest(unittest.TestCase):
     def setUp(self) -> None:
+        self.original_settings = db.settings
+        self.original_db_path = db.DB_PATH
+        test_data_dir = TEST_ROOT / "data"
+        test_settings = replace(app_settings, data_dir=test_data_dir)
+        db.settings = test_settings
+        db.DB_PATH = test_data_dir / "nerdo.sqlite3"
+        globals()["settings"] = test_settings
         shutil.rmtree(settings.data_dir, ignore_errors=True)
         init_db()
         self.intake_id = str(uuid4())
@@ -99,6 +108,11 @@ class PipelineTest(unittest.TestCase):
                 now,
             ),
         )
+
+    def tearDown(self) -> None:
+        db.settings = self.original_settings
+        db.DB_PATH = self.original_db_path
+        globals()["settings"] = app_settings
 
     def _page(self, url: str, title: str, html: str) -> CrawledPage:
         page_id = str(uuid4())

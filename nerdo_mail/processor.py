@@ -15,6 +15,7 @@ from pathlib import Path
 
 import httpx
 
+from nerdo_api.document_store import DomainDocumentStore
 from nerdo_api.storage import Storage
 
 from .config import MailSettings
@@ -84,12 +85,11 @@ def _attachments(message: Message) -> tuple[tuple[str, bytes], ...]:
 
 
 def _recipient_domain(message: Message) -> str | None:
-    addresses = getaddresses(
-        [
-            str(message.get(name, ""))
-            for name in ("To", "Cc", "Delivered-To", "X-Original-To")
-        ]
-    )
+    address_headers = [
+        str(message.get(name, ""))
+        for name in ("To", "Cc", "Delivered-To", "X-Original-To")
+    ]
+    addresses = getaddresses([value for value in address_headers if value.strip()])
     for _display, address in addresses:
         local = address.split("@", 1)[0]
         if "+" not in local:
@@ -410,37 +410,19 @@ class DomainCommands:
         paths = sorted(self.settings.users_dir.glob(f"*/{domain}/nerdo.json"))
         return paths[0] if paths else None
 
-    def _document_paths(self, domain: str) -> tuple[Path, tuple[Path, ...]]:
-        config_path = self._config_path(domain)
-        if not config_path:
-            raise FileNotFoundError(
-                f"No active domain configuration was found for {domain}."
-            )
-        root = config_path.parent
-        documents = tuple(
-            sorted(
-                path
-                for path in root.rglob("*")
-                if path.is_file()
-                and path.suffix.casefold() in {".md", ".markdown"}
-            )
-        )
-        return root, documents
+    def _document_store(self, domain: str) -> DomainDocumentStore:
+        return DomainDocumentStore.for_domain(self.settings.users_dir, domain)
 
     def list_documents(self, domain: str) -> str:
         try:
-            root, documents = self._document_paths(domain)
-        except FileNotFoundError as exc:
-            return str(exc)
+            documents = self._document_store(domain).list()
+        except Exception as exc:
+            return str(getattr(exc, "detail", exc))
         if not documents:
             return f"No Markdown documents were found for {domain}."
-        lines = [
-            f"- {path.relative_to(root).as_posix()}"
-            for path in documents
-        ]
         return (
             f"Documents for {domain} ({len(documents)}):\n"
-            + "\n".join(lines)
+            + "\n".join(f"- {item['path']}" for item in documents)
         )
 
     def attach_documents(
@@ -448,36 +430,18 @@ class DomainCommands:
         domain: str,
     ) -> tuple[str, tuple[tuple[str, bytes], ...]]:
         try:
-            root, documents = self._document_paths(domain)
-        except FileNotFoundError as exc:
-            return str(exc), ()
-        if not documents:
-            return f"No Markdown documents were found for {domain}.", ()
-
-        max_bytes = int(os.getenv("NERDO_MAIL_ATTACH_MAX_BYTES", "20000000"))
-        attached: list[tuple[str, bytes]] = []
-        total = 0
-        omitted = 0
-        for path in documents:
-            raw = path.read_bytes()
-            if total + len(raw) > max_bytes:
-                omitted += 1
-                continue
-            relative = path.relative_to(root).as_posix()
-            filename = SAFE_NAME_RE.sub(
-                "-",
-                relative.replace("/", "__"),
-            ).strip(".-") or "document.md"
-            attached.append((filename, raw))
-            total += len(raw)
-
+            maximum = int(os.getenv("NERDO_MAIL_ATTACH_MAX_BYTES", "20000000"))
+            exported = self._document_store(domain).export(max_bytes=maximum)
+        except Exception as exc:
+            return str(getattr(exc, "detail", exc)), ()
+        attached = tuple((name, raw) for name, raw, _path in exported["files"])
         body = f"Attached {len(attached)} Markdown document(s) for {domain}."
-        if omitted:
+        if exported["omitted"]:
             body += (
-                f"\nOmitted {omitted} document(s) because the combined "
-                f"attachment limit is {max_bytes} bytes."
+                f"\nOmitted {exported['omitted']} document(s) because the combined "
+                f"attachment limit is {maximum} bytes."
             )
-        return body, tuple(attached)
+        return body, attached
 
     def set_enabled(self, domain: str, enabled: bool) -> str:
         path = self._config_path(domain)
@@ -512,36 +476,27 @@ class DomainCommands:
         domain: str,
         attachments: tuple[tuple[str, bytes], ...],
     ) -> str:
-        path = self._config_path(domain)
-        if not path:
-            return f"No active domain configuration was found for {domain}."
         if not attachments:
             return (
                 "No Markdown attachments were found. "
                 "Attach `.md` or `.markdown` files."
             )
-
-        target = path.parent / "mail-imports"
-        target.mkdir(parents=True, exist_ok=True)
-        saved: list[str] = []
-        for original, raw in attachments:
-            name = (
-                SAFE_NAME_RE.sub("-", Path(original).name).strip(".-")
-                or "document.md"
-            )
-            if Path(name).suffix.casefold() not in {".md", ".markdown"}:
-                continue
-            raw.decode("utf-8")
-            destination = target / name
-            if destination.exists():
-                timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-                destination = target / f"{destination.stem}-{timestamp}{destination.suffix}"
-            destination.write_bytes(raw)
-            saved.append(destination.name)
-
+        try:
+            store = self._document_store(domain)
+            saved = [
+                store.persist_markdown(
+                    original,
+                    raw,
+                    origin="email",
+                    metadata={"transport": "mailbox"},
+                )
+                for original, raw in attachments
+            ]
+        except Exception as exc:
+            return str(getattr(exc, "detail", exc))
         return (
             f"Added {len(saved)} Markdown document(s) to {domain}: "
-            + ", ".join(saved)
+            + ", ".join(str(item["path"]) for item in saved)
         )
 
     def execute(self, parsed: ParsedCommand) -> CommandResult:

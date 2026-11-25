@@ -100,8 +100,8 @@ services:
       NERDO_MAILDIR_INBOX: INBOX/cur
       NERDO_MAIL_POLL_SECONDS: "${NERDO_MAIL_POLL_SECONDS:-10}"
       NERDO_MAIL_STABLE_SECONDS: "${NERDO_MAIL_STABLE_SECONDS:-2}"
-      NERDO_ADMIN_EMAILS: "${NERDO_ADMIN_EMAILS:-pablo@povarchik.com}"
+      NERDO_ADMIN_EMAILS: "${NERDO_ADMIN_EMAILS:?NERDO_ADMIN_EMAILS is required}"
     volumes:
       - ./data:/app/data
       - ./users:/app/users
-      - /home/pablo/.thunderbird/f0pc3s1x.default/ImapMail/hq3-mx-10.povarchik-2.com:/mailbox:ro
+      - /home/pablo/.thunderbird/f0pc3s1x.default/ImapMail/hq3-mx-10.povarchik-nerdo.com:/mailbox:ro

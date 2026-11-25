@@ -27,6 +27,13 @@ from nerdo_api.chat_trace_ui import (
 )
 
 
+class ChatBody(BaseModel):
+    domain: str
+    key: str
+    question: str
+    session_id: str | None = None
+
+
 def _config(directory: Path) -> BotConfig:
     return BotConfig(
         domain="example.com",
@@ -115,12 +122,6 @@ def test_chat_route_installer_records_only_authenticated_debug_requests(
 ) -> None:
     monkeypatch.setenv("NERDO_CHAT_TRACE_DIR", str(tmp_path / "traces"))
     monkeypatch.setattr(trace_install, "load_bot", lambda _domain: _config(tmp_path))
-
-    class ChatBody(BaseModel):
-        domain: str
-        key: str
-        question: str
-        session_id: str | None = None
 
     app = FastAPI()
 

@@ -10,6 +10,7 @@ from app.config import settings
 from app.db import execute, utc_now
 from app.services.email_transport import send_email
 from app.services.review_workspace import ensure_review_workspace
+from nerdo_api.document_store import DomainDocumentStore
 
 
 def _slug(value: str) -> str:
@@ -87,9 +88,29 @@ def activate_reviewed_intake(
     )
 
     try:
-        shutil.copytree(staging, destination)
-        (destination / ".nerdo.activation.json").replace(destination / "nerdo.json")
-        (destination / "document-foundry.json").unlink(missing_ok=True)
+        destination.mkdir(parents=True, exist_ok=False)
+        (destination / "nerdo.json").write_text(
+            reviewed_config.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+
+        source_store = DomainDocumentStore(staging, str(intake["domain"]))
+        target_store = DomainDocumentStore(destination, str(intake["domain"]))
+        target_store.deploy_knowledge(knowledge_path.read_bytes())
+        target_store.replace_website_pages(staging / "source-pages")
+
+        for item in source_store.list():
+            path = str(item["path"])
+            if path == "knowledge.md" or path.startswith("source-pages/"):
+                continue
+            source_path, _relative = source_store.path(path)
+            metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+            target_store.persist_markdown(
+                str(item.get("original_filename") or item.get("filename") or "document.md"),
+                source_path.read_bytes(),
+                origin=str(item.get("origin") or "review-workspace"),
+                metadata=metadata,
+            )
     except Exception:
         shutil.rmtree(destination, ignore_errors=True)
         reviewed_config.unlink(missing_ok=True)

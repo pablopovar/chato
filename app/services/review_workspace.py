@@ -11,6 +11,8 @@ from urllib.parse import urlsplit
 from app.config import settings
 from app.db import execute, fetch_all, fetch_one, utc_now
 from app.services.interpreter import interpret
+from nerdo_api.document_store import DomainDocumentStore
+
 from app.services.setup_report import (
     CHATO_SECTION,
     REVIEW_SECTION,
@@ -276,19 +278,18 @@ def _ensure_staging_directory(
             encoding="utf-8",
         )
 
+    documents = DomainDocumentStore(root, str(intake["domain"]))
     summary = _summary_text(summary_path) if include_summary else ""
     knowledge_path = root / "knowledge.md"
     if summary:
         if not knowledge_path.is_file():
-            knowledge_path.write_text(summary.rstrip() + "\n", encoding="utf-8")
+            documents.deploy_knowledge(summary.encode("utf-8"))
     elif not include_summary:
-        knowledge_path.unlink(missing_ok=True)
+        documents.remove_knowledge()
 
     source_pages = root / "source-pages"
     if not _has_markdown(source_pages):
-        if source_pages.exists():
-            shutil.rmtree(source_pages)
-        shutil.copytree(pages_dir, source_pages)
+        documents.replace_website_pages(pages_dir)
     return root
 
 
@@ -371,10 +372,10 @@ def ensure_review_workspace(intake_id: str) -> dict[str, Any]:
             summary = _summary_text(summary_path)
             if not summary:
                 raise RuntimeError("Chato produced an empty corpus summary.")
-            knowledge = Path(workspace["workspace"]) / "knowledge.md"
-            temporary = knowledge.with_name(f".{knowledge.name}.tmp")
-            temporary.write_text(summary.rstrip() + "\n", encoding="utf-8")
-            temporary.replace(knowledge)
+            DomainDocumentStore(
+                Path(workspace["workspace"]),
+                str(workspace["intake"]["domain"]),
+            ).deploy_knowledge(summary.encode("utf-8"))
             execute(
                 "UPDATE intakes SET draft_path = ?, updated_at = ? WHERE id = ?",
                 (str(summary_path), utc_now(), intake_id),
@@ -400,8 +401,9 @@ def ensure_review_workspace(intake_id: str) -> dict[str, Any]:
 
 def sync_review_summary(intake_id: str, content: str) -> Path:
     workspace = prepare_review_workspace(intake_id)
-    knowledge = Path(workspace["workspace"]) / "knowledge.md"
-    temporary = knowledge.with_name(f".{knowledge.name}.tmp")
-    temporary.write_text(content.rstrip() + "\n", encoding="utf-8")
-    temporary.replace(knowledge)
-    return knowledge
+    store = DomainDocumentStore(
+        Path(workspace["workspace"]),
+        str(workspace["intake"]["domain"]),
+    )
+    store.deploy_knowledge(content.encode("utf-8"))
+    return Path(workspace["workspace"]) / "knowledge.md"

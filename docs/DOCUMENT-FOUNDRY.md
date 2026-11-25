@@ -4,8 +4,8 @@ Each active domain dashboard includes a **Nerdo's Document Foundry** tab after *
 
 The integration has two distinct responsibilities:
 
-1. Chato remains the authority for the active domain corpus under `users/<owner>/<domain>/`.
-2. The standalone `pablopovar/document-foundry` service converts uploaded source files into Markdown and preserves its processing provenance.
+1. Chato remains the authority for the active domain corpus under `users/<owner>/<domain>/`, including its document registry and persistence policy.
+2. The standalone `pablopovar/document-foundry` service converts uploaded source files into Markdown; Chato stores the converted Markdown and its conversion provenance.
 
 The dashboard does not embed or duplicate the standalone Foundry dashboard.
 
@@ -19,9 +19,9 @@ The domain page can:
 - open and download raw Markdown;
 - edit Markdown in place;
 - reject stale saves when the file changed after it was opened;
-- preserve the previous file as a non-indexed `.bak` file before each save;
+- preserve the previous file under `.document-backups/` before each save;
 - upload PDF, DOCX, HTML, Markdown, and plain-text source files through the standalone Foundry;
-- copy successful Foundry output into the active domain corpus.
+- persist successful Foundry output into the active domain corpus immediately.
 
 ## Routes
 
@@ -40,13 +40,13 @@ These routes remain inside the existing Apache-protected `/dashboard/` area.
 users/<owner>/<domain>/
 ├── knowledge.md
 ├── source-pages/
-├── manual-documents/
-│   └── foundry/
-├── document-foundry.json
+├── documents/
+├── .document-store.json
+├── .document-store.lock
 └── .document-backups/
 ```
 
-`document-foundry.json` records the standalone Foundry folder associated with the domain. Backups use a `.bak` suffix so Core's Markdown retrieval does not index them.
+New uploads from email, the dashboard, and Document Foundry share `documents/`; the registry records provenance and hashes. Writes are locked across the Core, gateway, and mail processes. Existing `manual-documents/` and `mail-imports/` remain visible as legacy corpus files. Backups and lock/registry files are hidden from corpus retrieval.
 
 ## Standalone Foundry connection
 

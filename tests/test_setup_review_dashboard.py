@@ -44,9 +44,9 @@ def test_dashboard_root_enhancer_uses_domain_href_and_status() -> None:
 
     enhanced = enhance_root_page(page)
 
-    assert "completed intake for review" in enhanced
-    assert "x.href" in enhanced
-    assert "x.status" in enhanced
+    assert "pre-activation workspace" in enhanced
+    assert "x.domain" in enhanced
+    assert "x.enabled" in enhanced
     assert "No domains or intakes found" in enhanced
 
 
@@ -67,7 +67,7 @@ def test_setup_review_routes_are_registered() -> None:
     assert "/dashboard/api/reviews/{intake_id}/summary" in paths
     assert "/dashboard/api/reviews/{intake_id}/activate" in paths
     assert "/dashboard/api/reviews/{intake_id}/download" in paths
-    assert "/dashboard/reviews/{_intake_id}" in paths
+    assert "/dashboard/reviews/{intake_id}" in paths
 
 
 def test_reviewer_email_contains_report_and_direct_review_link() -> None:

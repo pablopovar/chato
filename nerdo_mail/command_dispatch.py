@@ -15,6 +15,53 @@ ADD_DOMAIN_COMMAND_RE = re.compile(
 )
 ADD_DOMAIN_USAGE = "Usage: add domain example.com owner@example.com"
 
+ADMIN_HELP_COMMANDS: tuple[tuple[str, str], ...] = (
+    ("help", "Show this administrator help."),
+    ("add domain DOMAIN EMAIL", "Add and immediately start a domain for its owner."),
+    ("list domains", "List every domain available to the administrator and its status. Aliases: `list`, `domains`."),
+    ("status DOMAIN", "Show status, document count, and last update for a domain."),
+    ("start DOMAIN", "Approve a pending domain and start its intake. Alias: `approve DOMAIN`."),
+    ("activate DOMAIN", "Activate a prepared domain."),
+    ("retry DOMAIN", "Queue a domain for processing again."),
+    ("reset DOMAIN", "Reset a domain and restart its intake from scratch. `confirm reset DOMAIN` is also accepted."),
+    ("enable DOMAIN", "Enable Chato for a domain."),
+    ("disable DOMAIN", "Disable Chato for a domain."),
+    ("add documents DOMAIN", "Import attached .md or .markdown files into the domain."),
+    ("list documents DOMAIN", "List the domain's Markdown documents."),
+    ("attach documents DOMAIN", "Reply with the domain's Markdown documents attached."),
+    ("remove DOMAIN", "Begin removal; Nerdo replies with the confirmation command."),
+    ("confirm remove DOMAIN", "Confirm and archive removal of the domain."),
+)
+
+
+def admin_help_text() -> str:
+    lines = [
+        "Nerdo administrator email help",
+        "",
+        "Commands:",
+    ]
+    lines.extend(f"- {syntax}: {description}" for syntax, description in ADMIN_HELP_COMMANDS)
+    lines.extend(
+        [
+            "",
+            "Queries:",
+            "- In a domain-bound thread, send an ordinary-language question instead of a command. Nerdo routes it to that domain's Chato.",
+            "",
+            "Command input:",
+            "- Put the command on the first non-empty line, or use `Command: ...`.",
+            "- A subject beginning with `Nerdo:` may also contain the command.",
+            "- In a domain-bound reply, the domain is taken from the reply address. Otherwise include DOMAIN in the command.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def mailbox_unknown_command_text() -> str:
+    return (
+        "Unknown command. Send `help` from a configured administrator "
+        "address for the full command list."
+    )
+
 
 class MailboxDomainCommands(DomainCommands):
     """Mailbox syntax adapter over the channel-agnostic domain operations API."""
@@ -218,13 +265,24 @@ class MailboxDomainCommands(DomainCommands):
             },
         )
         documents = result.get("documents", [])
+        paths = [
+            str(item.get("path") or item) if isinstance(item, dict) else str(item)
+            for item in documents
+        ]
         return (
             f"Added {len(documents)} Markdown document(s) to {domain}: "
-            + ", ".join(str(item) for item in documents)
+            + ", ".join(paths)
         )
 
     def execute(self, parsed: ParsedCommand) -> CommandResult:
         normalized = " ".join(parsed.command.split())
+
+        if normalized.casefold() == "help":
+            if parsed.sender not in self.settings.admin_emails:
+                return CommandResult(
+                    "Administrator help is available only from a configured administrator email address."
+                )
+            return CommandResult(admin_help_text())
 
         if normalized.casefold().startswith("add domain"):
             match = ADD_DOMAIN_COMMAND_RE.fullmatch(normalized)
@@ -247,9 +305,7 @@ class MailboxDomainCommands(DomainCommands):
         result = super().execute(parsed)
         if result.body.startswith("Unknown command."):
             return CommandResult(
-                "Unknown command. Supported commands: add domain, list domains, "
-                "status, start, activate, retry, reset, enable, disable, add documents, "
-                "list documents, attach documents, remove.",
+                mailbox_unknown_command_text(),
                 result.domain,
                 result.attachments,
             )

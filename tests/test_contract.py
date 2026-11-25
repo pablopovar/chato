@@ -7,7 +7,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 from nerdo_api.config import Settings
-from nerdo_api.core_client import CoreClient
+from nerdo_api.nerdo_client import NerdoClient
 from nerdo_api.main import create_app
 from nerdo_api.storage import Storage
 
@@ -44,19 +44,38 @@ def make_client():
         public_base_url="https://chato.povarchik.com",
         widget_script_url="https://chato.povarchik.com/widget.js",
     )
-    core = CoreClient("http://core.test", "admin", transport=httpx.MockTransport(core_handler))
-    app = create_app(settings, Storage(settings.database_path), core)
+    nerdo = NerdoClient("http://core.test", "admin", transport=httpx.MockTransport(core_handler))
+    app = create_app(settings, Storage(settings.database_path), nerdo)
     return temp, TestClient(app)
 
 
 def test_full_nerdo_contract():
     temp, client = make_client()
     try:
-        created = client.post("/v1/sites", json={"website_url": "https://example.com", "email": "owner@example.com"})
-        assert created.status_code == 201, created.text
-        site = created.json()
-        site_id = site["site_id"]
-        site_headers = {"X-Site-Token": site["site_token"]}
+        submitted = client.post(
+            "/v1/sites",
+            json={"website_url": "https://example.com", "email": "owner@example.com"},
+        )
+        assert submitted.status_code == 201, submitted.text
+        assert submitted.json()["status"] == "pending_approval"
+
+        site, site_token = client.app.state.storage.create_site(
+            website_url="https://example.com",
+            email="owner@example.com",
+            business_name=None,
+            domain="example.com",
+            intake_id="intake_1",
+            core_status_token="status_1",
+            status="queued",
+        )
+        site_id = site["id"]
+
+        created = client.get(
+            f"/v1/sites/{site_id}",
+            headers={"X-Site-Token": site_token},
+        )
+        assert created.status_code == 200, created.text
+        site_headers = {"X-Site-Token": site_token}
         nerdo_headers = {"X-Nerdo-Key": "nerdo-secret"}
 
         status = client.get(f"/v1/sites/{site_id}", headers=site_headers)

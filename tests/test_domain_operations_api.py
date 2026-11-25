@@ -111,9 +111,11 @@ def test_domain_documents_are_managed_through_api(tmp_path: Path, monkeypatch) -
         headers=headers,
     )
     assert listed.status_code == 200
-    assert listed.json()["documents"] == [
-        {"path": "knowledge.md", "bytes": len("# Existing\n")}
-    ]
+    listed_documents = listed.json()["documents"]
+    assert len(listed_documents) == 1
+    assert listed_documents[0]["path"] == "knowledge.md"
+    assert listed_documents[0]["bytes"] == len("# Existing\n")
+    assert listed_documents[0]["category"] == "Initial knowledge draft"
 
     uploaded = client.post(
         "/v1/admin/domains/example.com/documents",
@@ -128,8 +130,8 @@ def test_domain_documents_are_managed_through_api(tmp_path: Path, monkeypatch) -
         },
     )
     assert uploaded.status_code == 200
-    assert uploaded.json()["documents"] == ["mail-imports/new.md"]
-    assert (root / "mail-imports" / "new.md").read_text(encoding="utf-8") == "# New\n"
+    assert uploaded.json()["documents"][0]["path"] == "documents/new.md"
+    assert (root / "documents" / "new.md").read_text(encoding="utf-8") == "# New\n"
 
 
 def test_reset_archives_and_creates_fresh_intake(tmp_path: Path, monkeypatch) -> None:

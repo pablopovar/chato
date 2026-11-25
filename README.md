@@ -83,3 +83,18 @@ curl -sS http://127.0.0.1:3410/health
 ```
 
 Add `apache-chato-nerdo-proxy.conf` to the website virtual host, enable `proxy`, `proxy_http`, and `headers`, then place the two JavaScript files in the website's static `/js/` directory. The exact homepage hooks are documented in `docs/HOMEPAGE-WIRING.md`.
+
+## Document persistence boundary
+
+The deployed domain corpus has one persistence boundary: `DomainDocumentStore`.
+
+- website intake supplies reviewed knowledge and canonical website pages;
+- email and dashboard uploads supply Markdown documents;
+- Document Foundry supplies converted Markdown plus conversion metadata;
+- callers do not choose storage directories, collision names, backup paths, or duplicate policy;
+- writes and edits are serialized across the Core, gateway, and mail processes sharing the domain directory;
+- newly added documents use the channel-neutral `documents/` namespace;
+- repeated imports into the managed document store are deduplicated by SHA-256;
+- existing `manual-documents/` and `mail-imports/` files remain readable as legacy corpus content.
+
+Document Foundry remains the conversion interface for PDF, DOCX, HTML, Markdown, and text sources, while Chato & Nerdo owns the resulting domain-document persistence.

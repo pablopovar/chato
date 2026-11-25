@@ -11,6 +11,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
 
 from .config import Settings
+from .document_store import DomainDocumentStore
 from .storage import Storage
 
 
@@ -100,7 +101,18 @@ def _active_domains() -> dict[str, dict[str, Any]]:
             domain = _normalize_domain(str(raw.get("domain") or config_path.parent.name))
         except Exception:
             continue
-        manual_dir = config_path.parent / "manual-documents"
+        store = DomainDocumentStore(config_path.parent, domain)
+        documents = store.list()
+        added_count = sum(
+            1
+            for item in documents
+            if item.get("category") in {
+                "Added document",
+                "Legacy Foundry import",
+                "Legacy manual document",
+                "Legacy mail import",
+            }
+        )
         result.setdefault(
             domain,
             {
@@ -109,8 +121,8 @@ def _active_domains() -> dict[str, dict[str, Any]]:
                 "status": "active" if raw.get("enabled", True) else "disabled",
                 "updated_at": None,
                 "intake_id": None,
-                "document_count": len(list(config_path.parent.rglob("*.md"))),
-                "manual_document_count": len(list(manual_dir.glob("*.md"))) if manual_dir.is_dir() else 0,
+                "document_count": len(documents),
+                "manual_document_count": added_count,
                 "can_add_documents": True,
             },
         )
@@ -205,24 +217,21 @@ def install_dashboard(app: FastAPI, settings: Settings, storage: Storage) -> Non
         if len(files) > MAX_FILES:
             raise HTTPException(400, f"A maximum of {MAX_FILES} files may be uploaded at once.")
 
-        target = domain_dir / "manual-documents"
-        target.mkdir(parents=True, exist_ok=True)
+        store = DomainDocumentStore(domain_dir, normalized)
         added: list[dict[str, Any]] = []
         for item in files:
-            filename = _safe_filename(item.filename or "document.md")
             content = await item.read(MAX_FILE_BYTES + 1)
             await item.close()
             if len(content) > MAX_FILE_BYTES:
-                raise HTTPException(413, f"{filename}: file exceeds the 2 MB limit.")
-            try:
-                text = content.decode("utf-8")
-            except UnicodeDecodeError as exc:
-                raise HTTPException(400, f"{filename}: file must be UTF-8 text.") from exc
-            final_path = target / filename
-            temporary = target / f".{filename}.tmp"
-            temporary.write_text(text.rstrip() + "\n", encoding="utf-8")
-            temporary.replace(final_path)
-            added.append({"filename": filename, "bytes": len(content)})
+                raise HTTPException(413, f"{item.filename}: file exceeds the 2 MB limit.")
+            added.append(
+                store.persist_markdown(
+                    item.filename or "document.md",
+                    content,
+                    origin="dashboard",
+                    metadata={"transport": "browser-upload"},
+                )
+            )
 
         return {
             "domain": normalized,
@@ -230,6 +239,7 @@ def install_dashboard(app: FastAPI, settings: Settings, storage: Storage) -> Non
             "documents": added,
             "available_immediately": True,
         }
+
 
     app.add_api_route(
         "/dashboard/", page, methods=["GET"], response_class=HTMLResponse, include_in_schema=False

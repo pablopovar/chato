@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import re
 import secrets
-import shutil
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -23,6 +22,7 @@ from app.services.indexer import build_index
 from app.services.interpreter import interpret
 from app.services.registry import normalize_domain
 from app.services.setup_report import build_setup_report
+from nerdo_api.document_store import DomainDocumentStore
 
 
 def _slug(value: str) -> str:
@@ -338,19 +338,16 @@ def activate_intake(
     domain_dir = settings.users_dir / user_slug / intake["domain"]
     domain_dir.mkdir(parents=True, exist_ok=True)
 
-    knowledge_path = domain_dir / "knowledge.md"
-    shutil.copy2(draft_path, knowledge_path)
+    documents = DomainDocumentStore(domain_dir, intake["domain"])
+    documents.deploy_knowledge(draft_path.read_bytes())
 
-    # Bridge the prepared dataset into the current file-based chatbot. The
-    # SQLite and versioned intake dataset remain the authoritative pipeline
-    # records; these are deployment copies.
+    # The document store owns the deployed corpus layout. Intake supplies the
+    # reviewed knowledge and canonical website pages; it no longer chooses how
+    # those documents persist in the active domain.
+    source_pages = None
     if intake.get("dataset_path"):
         source_pages = Path(intake["dataset_path"]) / "cleaned" / "pages"
-        deployed_pages = domain_dir / "source-pages"
-        if deployed_pages.exists():
-            shutil.rmtree(deployed_pages)
-        if source_pages.is_dir():
-            shutil.copytree(source_pages, deployed_pages)
+    documents.replace_website_pages(source_pages)
 
     key = secrets.token_urlsafe(32)
     origin = (

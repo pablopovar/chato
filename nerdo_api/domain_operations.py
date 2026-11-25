@@ -16,6 +16,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, EmailStr, Field
 
 from .config import Settings
+from .document_store import DomainDocumentStore
 from .storage import Storage
 
 
@@ -294,26 +295,8 @@ def _write_enabled(settings: Settings, domain: str, enabled: bool) -> dict[str, 
     return {"domain": normalized, "enabled": enabled, "configurations_updated": changed}
 
 
-def _document_root(settings: Settings, domain: str) -> Path:
-    paths = _config_paths(settings, _normalize_domain(domain))
-    if not paths:
-        raise HTTPException(404, "No active domain configuration was found.")
-    return paths[0].parent.resolve()
-
-
-def _documents(settings: Settings, domain: str) -> tuple[Path, list[Path]]:
-    root = _document_root(settings, domain)
-    documents: list[Path] = []
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.suffix.casefold() not in {".md", ".markdown"}:
-            continue
-        resolved = path.resolve()
-        try:
-            resolved.relative_to(root)
-        except ValueError:
-            continue
-        documents.append(resolved)
-    return root, documents
+def _document_store(settings: Settings, domain: str) -> DomainDocumentStore:
+    return DomainDocumentStore.for_domain(settings.users_dir, domain)
 
 
 def _archive_deployment(settings: Settings, domain: str, kind: str) -> list[str]:
@@ -539,77 +522,61 @@ def install_domain_operations(app: FastAPI, settings: Settings, storage: Storage
         }
 
     def list_documents(domain: str) -> dict[str, Any]:
-        root, paths = _documents(settings, domain)
+        normalized = _normalize_domain(domain)
+        documents = _document_store(settings, normalized).list()
         return {
-            "domain": _normalize_domain(domain),
-            "count": len(paths),
-            "documents": [
-                {
-                    "path": path.relative_to(root).as_posix(),
-                    "bytes": path.stat().st_size,
-                }
-                for path in paths
-            ],
+            "domain": normalized,
+            "count": len(documents),
+            "documents": documents,
         }
 
     def export_documents(domain: str) -> dict[str, Any]:
-        root, paths = _documents(settings, domain)
+        normalized = _normalize_domain(domain)
         maximum = int(os.getenv("NERDO_MAIL_ATTACH_MAX_BYTES", "20000000"))
-        total = 0
-        omitted = 0
-        files: list[dict[str, str]] = []
-        for path in paths:
-            raw = path.read_bytes()
-            if total + len(raw) > maximum:
-                omitted += 1
-                continue
-            relative = path.relative_to(root).as_posix()
-            filename = SAFE_NAME_RE.sub("-", relative.replace("/", "__")).strip(".-") or "document.md"
-            files.append(
-                {
-                    "filename": filename,
-                    "content_base64": base64.b64encode(raw).decode("ascii"),
-                }
-            )
-            total += len(raw)
+        exported = _document_store(settings, normalized).export(max_bytes=maximum)
+        files = [
+            {
+                "filename": filename,
+                "path": relative_path,
+                "content_base64": base64.b64encode(raw).decode("ascii"),
+            }
+            for filename, raw, relative_path in exported["files"]
+        ]
         return {
-            "domain": _normalize_domain(domain),
+            "domain": normalized,
             "count": len(files),
-            "omitted": omitted,
-            "total_bytes": total,
-            "maximum_bytes": maximum,
+            "omitted": exported["omitted"],
+            "total_bytes": exported["total_bytes"],
+            "maximum_bytes": exported["maximum_bytes"],
             "files": files,
         }
 
     def add_documents(domain: str, payload: DocumentsUploadRequest) -> dict[str, Any]:
-        root = _document_root(settings, domain)
+        normalized = _normalize_domain(domain)
         if not payload.files:
             raise HTTPException(400, "At least one Markdown document is required.")
-        target = root / "mail-imports"
-        target.mkdir(parents=True, exist_ok=True)
-        saved: list[str] = []
+        store = _document_store(settings, normalized)
+        saved: list[dict[str, Any]] = []
         for item in payload.files:
-            name = SAFE_NAME_RE.sub("-", Path(item.filename).name).strip(".-") or "document.md"
-            if Path(name).suffix.casefold() not in {".md", ".markdown"}:
-                raise HTTPException(400, f"{item.filename} is not a Markdown document.")
             try:
                 raw = base64.b64decode(item.content_base64, validate=True)
-                raw.decode("utf-8")
             except Exception as exc:
-                raise HTTPException(400, f"{item.filename} is not valid UTF-8 Markdown.") from exc
-            destination = target / name
-            if destination.exists():
-                stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-                destination = target / f"{destination.stem}-{stamp}{destination.suffix}"
-            temporary = destination.with_name(f".{destination.name}.tmp")
-            temporary.write_bytes(raw)
-            temporary.replace(destination)
-            saved.append(destination.relative_to(root).as_posix())
+                raise HTTPException(400, f"{item.filename} has invalid base64 content.") from exc
+            saved.append(
+                store.persist_markdown(
+                    item.filename,
+                    raw,
+                    origin="email",
+                    metadata={"transport": "mailbox"},
+                )
+            )
         return {
-            "domain": _normalize_domain(domain),
+            "domain": normalized,
             "count": len(saved),
             "documents": saved,
+            "available_immediately": True,
         }
+
 
     app.add_api_route(
         "/v1/admin/domains",

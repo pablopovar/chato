@@ -3,7 +3,7 @@
 Temporary inbound transport for the Thunderbird-managed mailbox at:
 
 ```text
-/home/pablo/.thunderbird/f0pc3s1x.default/ImapMail/hq3-mx-10.povarchik-2.com/INBOX/cur
+/home/pablo/.thunderbird/f0pc3s1x.default/ImapMail/hq3-mx-10.povarchik-nerdo.com/INBOX/cur
 ```
 
 The folder is mounted read-only at `/mailbox`. Nerdo scans only stable `*.eml` files in `INBOX/cur`, claims each message in `data/nerdo-mail.sqlite3` before executing it, and never moves or modifies Thunderbird files.
@@ -46,7 +46,7 @@ The command may be the first non-empty line of the message or the value of a `Co
 
 `add domain example.com owner@example.com` is restricted to addresses listed in `NERDO_ADMIN_EMAILS`. It creates and immediately starts a Core intake for `https://example.com`, assigning it to the supplied account email. The command uses spaces only; bars and other separators are not accepted.
 
-`add documents example.com` sends UTF-8 `.md` and `.markdown` attachments to the domain operations API. The API stores them under the deployed domain's `mail-imports/` directory. Retrieval scans Markdown recursively, so the additions become available immediately.
+`add documents example.com` sends UTF-8 `.md` and `.markdown` attachments to the domain operations API. The API stores new imports under the domain's channel-neutral `documents/` directory and records their origin in `.document-store.json`. Repeated imports into that managed directory are deduplicated by content hash. Existing `mail-imports/` documents remain readable as legacy corpus content. Retrieval scans Markdown recursively, so additions become available immediately.
 
 `list documents example.com` requests the relative paths of all Markdown documents from the domain operations API.
 

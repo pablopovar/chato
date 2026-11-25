@@ -5,7 +5,7 @@ FOUNDRY_PANEL = r'''
   <div class="foundry-heading">
     <div>
       <h2>Nerdo's Document Foundry</h2>
-      <p>Inspect the domain data as Markdown, edit the active corpus, or convert and add new source documents.</p>
+      <p>Inspect and edit the active corpus, or add source documents. Chato & Nerdo handles persistence automatically.</p>
     </div>
     <div id="foundryService" class="foundry-service">Checking conversion service…</div>
   </div>
@@ -16,7 +16,7 @@ FOUNDRY_PANEL = r'''
     </label>
     <button id="foundryImport" class="primary" type="submit">Process and add to domain</button>
   </form>
-  <p class="help">PDF, DOCX, HTML, Markdown, and plain text are processed by the standalone Document Foundry. The resulting Markdown becomes part of this domain immediately.</p>
+  <p class="help">PDF, DOCX, HTML, Markdown, and plain text are converted by Document Foundry. The resulting Markdown is persisted into the domain corpus automatically and becomes available immediately.</p>
   <p id="foundryNotice" class="notice"></p>
 
   <div class="foundry-layout">

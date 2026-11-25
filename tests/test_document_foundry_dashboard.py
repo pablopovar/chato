@@ -7,12 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 from nerdo_api import dashboard_domain
-from nerdo_api.document_foundry import (
-    _list_documents,
-    _read_document,
-    _relative_document_path,
-    _save_document,
-)
+from nerdo_api.document_store import DomainDocumentStore
 from nerdo_api.document_foundry_ui import enhance_dashboard_page
 
 
@@ -47,7 +42,7 @@ def test_lists_domain_markdown_by_origin(
     hidden.mkdir(parents=True)
     (hidden / "home.md").write_text("old", encoding="utf-8")
 
-    records = _list_documents("example.com")
+    records = DomainDocumentStore(root, "example.com").list()
     by_path = {record["path"]: record for record in records}
 
     assert set(by_path) == {
@@ -57,7 +52,7 @@ def test_lists_domain_markdown_by_origin(
     }
     assert by_path["source-pages/home.md"]["category"] == "Website data"
     assert by_path["source-pages/home.md"]["source_url"] == "https://example.com/"
-    assert by_path["manual-documents/policy.md"]["category"] == "Manual document"
+    assert by_path["manual-documents/policy.md"]["category"] == "Legacy manual document"
 
 
 def test_edit_is_atomic_backed_up_and_conflict_checked(
@@ -65,13 +60,14 @@ def test_edit_is_atomic_backed_up_and_conflict_checked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root = create_domain(tmp_path, monkeypatch)
-    opened = _read_document("example.com", "source-pages/home.md")
+    store = DomainDocumentStore(root, "example.com")
+    opened = store.read("source-pages/home.md", max_bytes=2_000_000)
 
-    result = _save_document(
-        "example.com",
+    result = store.save(
         "source-pages/home.md",
         opened["content"] + "\nChanged",
         opened["sha256"],
+        max_bytes=2_000_000,
     )
 
     assert result["available_immediately"] is True
@@ -81,23 +77,24 @@ def test_edit_is_atomic_backed_up_and_conflict_checked(
     )
 
     with pytest.raises(HTTPException) as conflict:
-        _save_document(
-            "example.com",
+        store.save(
             "source-pages/home.md",
             "stale edit",
             opened["sha256"],
+            max_bytes=2_000_000,
         )
     assert conflict.value.status_code == 409
 
 
 def test_document_paths_cannot_escape_domain() -> None:
+    store = DomainDocumentStore(Path("/tmp/example.com"), "example.com")
     for value in ("../nerdo.json", "/etc/passwd.md", ".hidden/file.md"):
         with pytest.raises(HTTPException):
-            _relative_document_path(value)
+            store.path(value)
 
 
 def test_domain_dashboard_accepts_foundry_panel() -> None:
     rendered = enhance_dashboard_page(dashboard_domain.DOMAIN_PAGE)
     assert "foundryPanel" in rendered
     assert "Nerdo's Document Foundry" in rendered
-    assert "foundry/document" in rendered
+    assert "foundryEndpoint}/document" in rendered
