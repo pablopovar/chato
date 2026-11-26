@@ -127,6 +127,7 @@ Grounding rules:
             api_key=config.model_api_key,
             temperature=config.temperature,
             max_tokens=config.max_tokens,
+            reasoning_effort="none",
         )
         if trace:
             trace.event(
